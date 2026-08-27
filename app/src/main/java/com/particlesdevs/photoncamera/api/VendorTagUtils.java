@@ -1,13 +1,18 @@
 package com.particlesdevs.photoncamera.api;
 
+import android.content.Context;
 import android.annotation.SuppressLint;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 
 import com.particlesdevs.photoncamera.util.Log;
+import com.particlesdevs.photoncamera.app.PhotonCamera;
+import com.particlesdevs.photoncamera.settings.TunableKeyManager;
 
 import java.lang.reflect.Array;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class VendorTagUtils {
     private static final String TAG = "VendorTagUtils";
@@ -238,6 +243,37 @@ public class VendorTagUtils {
         if(useMaximumResolutionKey) {
             builder.set(CaptureRequest.SENSOR_PIXEL_MODE, CaptureRequest.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION);
         }
-        com.particlesdevs.photoncamera.settings.TunableKeyManager.applyTunableKeys(builder, physicalId);
+        TunableKeyManager.applyTunableKeys(builder, physicalId);
+    }
+
+    /**
+     * Inspects dynamic metadata from preview/capture result and caches confirmed hardware features
+     * (such as active OIS mode) into TunableKeyManager for the given physical sensor.
+     * Uses an in-memory set to ensure the inspection and disk write happen only once per sensor.
+     *
+     * @param result     the CaptureResult from preview or capture frame
+     * @param physicalId physical camera ID
+     */
+    public static void resultSessionApply(CaptureResult result, String physicalId) {
+        if (result == null || physicalId == null || physicalId.isEmpty()) return;
+        if (verifiedOisSensors.contains(physicalId)) return;
+
+        try {
+            Integer oisMode = result.get(CaptureResult.LENS_OPTICAL_STABILIZATION_MODE);
+            if (oisMode != null && oisMode == 1) {
+                Context context = PhotonCamera.getSettingsManagerStatic() != null
+                        ? PhotonCamera.getSettingsManagerStatic().getContext() : null;
+                if (!TunableKeyManager.hasKey(context, physicalId, "android.lens.opticalStabilizationMode", "1")) {
+                    TunableKey oisKey = new TunableKey("CaptureResult", "android.lens.opticalStabilizationMode", Integer.class, 1);
+                    oisKey.tested = true;
+                    oisKey.supported = true;
+                    TunableKeyManager.saveKey(physicalId, oisKey);
+                    Log.d(TAG, "Cached OIS confirmation for sensor " + physicalId + " from CaptureResult");
+                }
+                verifiedOisSensors.add(physicalId);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error inspecting CaptureResult for sensor " + physicalId, e);
+        }
     }
 }

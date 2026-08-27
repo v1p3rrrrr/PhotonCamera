@@ -475,8 +475,8 @@ public class SensorConfigPreferenceGenerator {
 
     /**
      * Checks if the physical camera sensor supports hardware Optical Image Stabilization (OIS).
-     * Inspects CameraCharacteristics (both available modes array and static mode tag) as well as
-     * persistent test results stored in SharedPreferences via TunableKeyManager.
+     * Inspects static CameraCharacteristics available modes as well as persistent preview test
+     * results stored in SharedPreferences via TunableKeyManager.
      */
     private static boolean isOisSupported(Context context, String sensorId) {
         try {
@@ -494,24 +494,13 @@ public class SensorConfigPreferenceGenerator {
                             }
                         }
                     }
-
-                    // 2. Check byte mode tag directly from characteristics keys (matches android.lens.opticalStabilizationMode == 1)
-                    for (android.hardware.camera2.CameraCharacteristics.Key<?> key : chars.getKeys()) {
-                        if (key != null && "android.lens.opticalStabilizationMode".equals(key.getName())) {
-                            Object val = chars.get(key);
-                            if (val != null && (val.equals((byte) 1) || val.equals(1))) {
-                                Log.d(TAG, "Sensor " + sensorId + " OIS static mode value found via getKeys(): " + val + " -> supported");
-                                return true;
-                            }
-                        }
-                    }
                 }
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to inspect CameraCharacteristics for sensor " + sensorId, e);
         }
 
-        // 3. Check persistent SharedPreferences via TunableKeyManager
+        // 2. Check persistent SharedPreferences cached from preview CaptureResult via TunableKeyManager
         if (TunableKeyManager.hasKey(context, sensorId, "android.lens.opticalStabilizationMode", "1")) {
             Log.d(TAG, "Sensor " + sensorId + " OIS confirmed via TunableKeyManager in SharedPreferences -> supported");
             return true;

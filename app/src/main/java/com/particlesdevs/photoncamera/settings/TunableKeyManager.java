@@ -81,15 +81,29 @@ public class TunableKeyManager {
         for (VendorTagUtils.TunableKey key : keys) {
             if (key != null && keyName.equalsIgnoreCase(key.name)) {
                 if (key.supported) {
-                    Log.d(TAG, "Sensor " + sensorId + " key " + keyName + " is marked supported in SharedPreferences");
                     return true;
                 }
                 if (expectedValue != null && expectedValue.equalsIgnoreCase(key.value)) {
-                    Log.d(TAG, "Sensor " + sensorId + " key " + keyName + " matches expected value: " + expectedValue);
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    /**
+     * Updates or adds a single tested key for the sensor and persists the list to SharedPreferences.
+     *
+     * @param sensorId  physical camera ID
+     * @param keyToSave the tunable key object to persist
+     */
+    public static void saveKey(String sensorId, VendorTagUtils.TunableKey keyToSave) {
+        Context context = PhotonCamera.getSettingsManagerStatic() != null
+                ? PhotonCamera.getSettingsManagerStatic().getContext() : null;
+        if (context == null || sensorId == null || keyToSave == null) return;
+        List<VendorTagUtils.TunableKey> keys = loadKeys(context, sensorId);
+        keys.removeIf(k -> k != null && keyToSave.name.equalsIgnoreCase(k.name));
+        keys.add(keyToSave);
+        saveKeys(context, sensorId, keys);
     }
 }

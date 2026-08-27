@@ -576,6 +576,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             mFlashed = state != null && state == CaptureResult.FLASH_STATE_PARTIAL || state == CaptureResult.FLASH_STATE_FIRED;
             mPreviewCaptureResult = result;
             mPreviewCaptureRequest = request;
+            VendorTagUtils.resultSessionApply(result, physicalID);
             process(result);
             cameraEventsListener.onPreviewCaptureCompleted(result);
             if(PreferenceKeys.getAfMode() == CaptureRequest.CONTROL_AF_MODE_AUTO && !burst && !mTouchFocus.isTouchFocus) {
