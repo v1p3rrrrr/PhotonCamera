@@ -16,6 +16,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class VendorTagUtils {
     private static final String TAG = "VendorTagUtils";
+    private static final Set<String> verifiedOisSensors = ConcurrentHashMap.newKeySet();
+
     private static boolean isSupported(CaptureRequest.Builder builder,
                                        CaptureRequest.Key<?> key) {
         boolean supported = true;
@@ -260,16 +262,19 @@ public class VendorTagUtils {
 
         try {
             Integer oisMode = result.get(CaptureResult.LENS_OPTICAL_STABILIZATION_MODE);
-            if (oisMode != null && oisMode == 1) {
-                Context context = PhotonCamera.getSettingsManagerStatic() != null
-                        ? PhotonCamera.getSettingsManagerStatic().getContext() : null;
-                if (!TunableKeyManager.hasKey(context, physicalId, "android.lens.opticalStabilizationMode", "1")) {
-                    TunableKey oisKey = new TunableKey("CaptureResult", "android.lens.opticalStabilizationMode", Integer.class, 1);
-                    oisKey.tested = true;
-                    oisKey.supported = true;
-                    TunableKeyManager.saveKey(physicalId, oisKey);
-                    Log.d(TAG, "Cached OIS confirmation for sensor " + physicalId + " from CaptureResult");
+            if (oisMode != null) {
+                if (oisMode == 1) {
+                    Context context = PhotonCamera.getSettingsManagerStatic() != null
+                            ? PhotonCamera.getSettingsManagerStatic().getContext() : null;
+                    if (!TunableKeyManager.hasKey(context, physicalId, "android.lens.opticalStabilizationMode", "1")) {
+                        TunableKey oisKey = new TunableKey("CaptureResult", "android.lens.opticalStabilizationMode", Integer.class, 1);
+                        oisKey.tested = true;
+                        oisKey.supported = true;
+                        TunableKeyManager.saveKey(physicalId, oisKey);
+                        Log.d(TAG, "Cached OIS confirmation for sensor " + physicalId + " from CaptureResult");
+                    }
                 }
+                // Mark sensor verified once metadata is read (stops further checks for both OIS and non-OIS sensors)
                 verifiedOisSensors.add(physicalId);
             }
         } catch (Exception e) {
