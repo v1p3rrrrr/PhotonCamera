@@ -64,4 +64,32 @@ public class TunableKeyManager {
         VendorTagUtils.applyTunableKeys(builder, keys, physicalId);
         saveKeys(context, physicalId, keys);
     }
+
+    /**
+     * Universal check whether a tunable key is supported or holds an expected value
+     * in SharedPreferences for the given sensor.
+     *
+     * @param context       the application or preference context
+     * @param sensorId      physical camera ID
+     * @param keyName       name of the vendor tag / key (e.g. "android.lens.opticalStabilizationMode")
+     * @param expectedValue expected string value (e.g. "1"), or null if only checking support
+     * @return true if the key exists and is either marked supported or matches expectedValue
+     */
+    public static boolean hasKey(Context context, String sensorId, String keyName, String expectedValue) {
+        if (context == null || sensorId == null || keyName == null) return false;
+        List<VendorTagUtils.TunableKey> keys = loadKeys(context, sensorId);
+        for (VendorTagUtils.TunableKey key : keys) {
+            if (key != null && keyName.equalsIgnoreCase(key.name)) {
+                if (key.supported) {
+                    Log.d(TAG, "Sensor " + sensorId + " key " + keyName + " is marked supported in SharedPreferences");
+                    return true;
+                }
+                if (expectedValue != null && expectedValue.equalsIgnoreCase(key.value)) {
+                    Log.d(TAG, "Sensor " + sensorId + " key " + keyName + " matches expected value: " + expectedValue);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }

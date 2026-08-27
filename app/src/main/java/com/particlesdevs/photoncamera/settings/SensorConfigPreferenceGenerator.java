@@ -345,15 +345,16 @@ public class SensorConfigPreferenceGenerator {
         SensorConfig annotation = info.annotation;
         String prefKey = "pref_sensorconfig_" + sensorId + "_" + info.fieldName.toLowerCase();
 
-        // Heal preference type in background if corrupted by config import
-        ensureStringPreference(context, prefKey);
-
         if (annotation.entries().length > 0 && annotation.entryValues().length > 0) {
+            // Heal preference type in background if corrupted by config import
+            ensureStringPreference(context, prefKey);
             addListPreference(context, category, prefKey, info);
             return;
         }
 
         if (annotation.step() == 0f) {
+            // Heal preference type in background if corrupted by config import
+            ensureStringPreference(context, prefKey);
             addFreeTextPreference(context, category, prefKey, info);
             return;
         }
@@ -474,17 +475,49 @@ public class SensorConfigPreferenceGenerator {
 
     /**
      * Checks if the physical camera sensor supports hardware Optical Image Stabilization (OIS).
+     * Inspects CameraCharacteristics (both available modes array and static mode tag) as well as
+     * persistent test results stored in SharedPreferences via TunableKeyManager.
      */
     private static boolean isOisSupported(Context context, String sensorId) {
         try {
             android.hardware.camera2.CameraManager manager = (android.hardware.camera2.CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
             if (manager != null) {
                 android.hardware.camera2.CameraCharacteristics chars = manager.getCameraCharacteristics(sensorId);
-                int[] modes = chars.get(android.hardware.camera2.CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION);
-                return modes != null && modes.length > 1;
+                if (chars != null) {
+                    // 1. Check for active ON (1) mode within available stabilization modes array
+                    int[] modes = chars.get(android.hardware.camera2.CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION);
+                    if (modes != null) {
+                        for (int mode : modes) {
+                            if (mode == android.hardware.camera2.CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) {
+                                Log.d(TAG, "Sensor " + sensorId + " OIS mode ON (1) found in availableOpticalStabilization -> supported");
+                                return true;
+                            }
+                        }
+                    }
+
+                    // 2. Check byte mode tag directly from characteristics keys (matches android.lens.opticalStabilizationMode == 1)
+                    for (android.hardware.camera2.CameraCharacteristics.Key<?> key : chars.getKeys()) {
+                        if (key != null && "android.lens.opticalStabilizationMode".equals(key.getName())) {
+                            Object val = chars.get(key);
+                            if (val != null && (val.equals((byte) 1) || val.equals(1))) {
+                                Log.d(TAG, "Sensor " + sensorId + " OIS static mode value found via getKeys(): " + val + " -> supported");
+                                return true;
+                            }
+                        }
+                    }
+                }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to inspect CameraCharacteristics for sensor " + sensorId, e);
         }
+
+        // 3. Check persistent SharedPreferences via TunableKeyManager
+        if (TunableKeyManager.hasKey(context, sensorId, "android.lens.opticalStabilizationMode", "1")) {
+            Log.d(TAG, "Sensor " + sensorId + " OIS confirmed via TunableKeyManager in SharedPreferences -> supported");
+            return true;
+        }
+
+        Log.d(TAG, "Sensor " + sensorId + " OIS is NOT supported");
         return false;
     }
 

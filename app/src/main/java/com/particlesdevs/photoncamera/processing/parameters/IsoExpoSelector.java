@@ -455,9 +455,9 @@ public class IsoExpoSelector {
         }
 
         public void denormalizeSystem() {
-            double div = 100.0 / isolow;
-            iso /= div;
-            isoanalog /=div;
+            double div = (isolow > 0) ? (100.0 / isolow) : 1.0;
+            iso = (int) Math.round(iso / div);
+            isoanalog = (int) Math.round(isoanalog / div);
         }
         public float normalizedIso(){
             return (float)iso/isoanalog;
@@ -489,13 +489,16 @@ public class IsoExpoSelector {
         }
 
         public void ExpoCompensateLower(double k) {
-            iso /= k;
+            int origIso = iso;
+            long origExposure = exposure;
+
+            iso = (int) Math.round(iso / k);
             normalizeISO();
             if (normalizeCheck()) {
-                iso *= k;
-                exposure /= k;
+                iso = origIso;
+                exposure = (long) Math.round(origExposure / k);
                 if (normalizeCheck()) {
-                    exposure *= k;
+                    exposure = origExposure;
                     layerMpy = 1.f;
                 }
             }
@@ -729,34 +732,40 @@ public class IsoExpoSelector {
         }
 
         public void ExpoCompensateLowerExpo(double k) {
-            iso /= k;
+            int origIso = iso;
+            long origExposure = exposure;
+
+            iso = (int) Math.round(origIso / k);
             if (normalizeCheck()) {
-                iso *= k;
-                exposure /= k;
-                if(normalizeCheck()){
-                    exposure *= k;
-                    exposure /= Math.sqrt(k);
-                    iso /= Math.sqrt(k);
+                iso = origIso;
+                exposure = (long) Math.round(origExposure / k);
+                if (normalizeCheck()) {
+                    double sqrtK = Math.sqrt(k);
+                    exposure = (long) Math.round(origExposure / sqrtK);
+                    iso = (int) Math.round(origIso / sqrtK);
                     if (normalizeCheck()) {
-                        exposure *= Math.sqrt(k);
-                        iso *= Math.sqrt(k);
+                        exposure = origExposure;
+                        iso = origIso;
                     }
                 }
             }
         }
 
         public boolean ExpoCompensateLowerExpo2(double k) {
-            exposure /= k;
+            long origExposure = exposure;
+            int origIso = iso;
+
+            exposure = (long) Math.round(origExposure / k);
             if (normalizeCheck()) {
-                exposure *= k;
-                iso /= k;
-                if(normalizeCheck()){
-                    iso *= k;
-                    iso /= Math.sqrt(k);
-                    exposure /= Math.sqrt(k);
+                exposure = origExposure;
+                iso = (int) Math.round(origIso / k);
+                if (normalizeCheck()) {
+                    double sqrtK = Math.sqrt(k);
+                    iso = (int) Math.round(origIso / sqrtK);
+                    exposure = (long) Math.round(origExposure / sqrtK);
                     if (normalizeCheck()) {
-                        iso *= Math.sqrt(k);
-                        exposure *= Math.sqrt(k);
+                        iso = origIso;
+                        exposure = origExposure;
                     }
                 }
             }
@@ -768,48 +777,69 @@ public class IsoExpoSelector {
         }
 
         public void UseIso(double isoUsed) {
-            double k = iso / isoUsed;
+            if (isoUsed <= 0) return;
+            int origIso = iso;
+            long origExposure = exposure;
+
+            double k = (double) iso / isoUsed;
             ReduceIso(k);
             if (normalizeCheck()) {
-                iso *= (double) (exposure) / exposurehigh;
+                iso = (int) Math.round((double) origIso * origExposure / exposurehigh);
                 exposure = exposurehigh;
                 if (normalizeCheck()) {
-                    iso = isohigh;
+                    double isoHigh = normalizedIsoHigh();
+                    if (iso > isoHigh) iso = (int) Math.round(isoHigh);
+                    if (iso < 100) iso = 100;
+                    if (exposure > exposurehigh) exposure = exposurehigh;
+                    if (exposure < exposurelow) exposure = exposurelow;
                 }
             }
         }
 
         public void ReduceIso() {
+            int origIso = iso;
+            long origExposure = exposure;
             ReduceIso(2.0);
             if (normalizeCheck()) {
-                ReduceIso(1.0 / 2);
+                iso = origIso;
+                exposure = origExposure;
             }
         }
 
         public void ReduceIso(double k) {
-            iso /= k;
-            exposure *= k;
+            iso = (int) Math.round(iso / k);
+            exposure = (long) Math.round(exposure * k);
         }
 
         public void ReduceExpo() {
+            int origIso = iso;
+            long origExposure = exposure;
             ReduceExpo(2.0);
-            if (normalizeCheck()) ReduceExpo(1.0 / 2);
+            if (normalizeCheck()) {
+                iso = origIso;
+                exposure = origExposure;
+            }
         }
 
         public void ReduceExpo(double k) {
             Log.d(TAG, "ExpoReducing iso:" + iso + " expo:" + ExposureIndex.sec2string(ExposureIndex.time2sec(exposure)));
-            iso *= k;
-            exposure /= k;
+            iso = (int) Math.round(iso * k);
+            exposure = (long) Math.round(exposure / k);
             Log.d(TAG, "ExpoReducing done iso:" + iso + " expo:" + ExposureIndex.sec2string(ExposureIndex.time2sec(exposure)));
         }
 
         public void FixedExpo(double expo) {
             long expol = ExposureIndex.sec2time(expo);
             if (expol <= 0) return;
+            int origIso = iso;
+            long origExposure = exposure;
             double k = (double) exposure / expol;
             ReduceExpo(k);
             Log.d(TAG, "ExpoFixating iso:" + iso + " expo:" + ExposureIndex.sec2string(ExposureIndex.time2sec(exposure)));
-            if (normalizeCheck()) ReduceExpo(1 / k);
+            if (normalizeCheck()) {
+                iso = origIso;
+                exposure = origExposure;
+            }
         }
 
         public String ExposureString() {

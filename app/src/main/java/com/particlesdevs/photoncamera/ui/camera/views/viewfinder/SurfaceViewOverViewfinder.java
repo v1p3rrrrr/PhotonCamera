@@ -89,7 +89,7 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
 
         oisTextWidth = hudPaint.measureText("OIS");
 
-        histBgPaint.setColor(Color.argb(100, 0, 0, 0));
+        histBgPaint.setColor(Color.argb(235, 18, 18, 18));
         histBgPaint.setStyle(Paint.Style.FILL);
 
         histBorderPaint.setColor(Color.argb(90, 255, 255, 255));
@@ -363,8 +363,9 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
             canvas.rotate(mAnimatedOrientation, pivotX, pivotY);
         }
 
-        // 1. Draw semi-transparent dark background and 1/3 guidelines
-        canvas.drawRect(left, top, right, bottom, histBgPaint);
+        // 1. Draw solid dark background with a 2.5dp bleed buffer to mask underlying OpenGL peaking edges
+        float bleedPad = 2.5f * mDensity;
+        canvas.drawRect(left - bleedPad, top - bleedPad, right + bleedPad, bottom + bleedPad, histBgPaint);
         canvas.drawRect(left, top, right, bottom, histBorderPaint);
         canvas.drawLine(left + (w / 3f), top, left + (w / 3f), bottom, histBorderPaint);
         canvas.drawLine(left + (2f * w / 3f), top, left + (2f * w / 3f), bottom, histBorderPaint);

@@ -781,6 +781,11 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             int g = (c >> 8) & 0xFF;
             int b = c & 0xFF;
 
+            // Filter out artificial magenta focus peaking highlights (high R & B, low G)
+            if (r > 190 && b > 190 && (r - g > 110) && (b - g > 110)) {
+                continue;
+            }
+
             mHistData[0][r * size / 256]++;
             mHistData[1][g * size / 256]++;
             mHistData[2][b * size / 256]++;
