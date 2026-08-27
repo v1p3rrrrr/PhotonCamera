@@ -1,5 +1,6 @@
 package com.particlesdevs.photoncamera.processing.parameters;
 
+import android.content.Context;
 import android.graphics.Rect;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraMetadata;
@@ -13,6 +14,8 @@ import com.particlesdevs.photoncamera.api.CameraMode;
 import com.particlesdevs.photoncamera.app.PhotonCamera;
 import com.particlesdevs.photoncamera.capture.CaptureController;
 import com.particlesdevs.photoncamera.settings.PreferenceKeys;
+import com.particlesdevs.photoncamera.api.VendorTagUtils;
+import com.particlesdevs.photoncamera.settings.SensorConfigPreferenceGenerator;
 
 import java.util.ArrayList;
 import java.util.Locale;
@@ -368,17 +371,11 @@ public class IsoExpoSelector {
                 efl = (36.0f / sensorSize.getWidth()) * fl;
             }
 
-            // Explicit and safe OIS capability check
-            boolean hasHardwareOis = false;
-            int[] oisModes = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION);
-            if (oisModes != null) {
-                for (int mode : oisModes) {
-                    if (mode == CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) {
-                        hasHardwareOis = true;
-                        break;
-                    }
-                }
-            }
+            // Explicit and safe OIS capability check via unified VendorTagUtils
+            Context context = PhotonCamera.getSettingsManagerStatic() != null
+                    ? PhotonCamera.getSettingsManagerStatic().getContext() : null;
+            String physicalId = SensorConfigPreferenceGenerator.toPhysicalId(PhotonCamera.getSettings().mCameraID);
+            boolean hasHardwareOis = VendorTagUtils.isOisSupported(context, characteristics, physicalId);
 
             if (hasHardwareOis) {
                 oisActive = (captureController == null || captureController.oisMode != 2);

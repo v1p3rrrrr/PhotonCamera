@@ -475,37 +475,13 @@ public class SensorConfigPreferenceGenerator {
 
     /**
      * Checks if the physical camera sensor supports hardware Optical Image Stabilization (OIS).
-     * Inspects static CameraCharacteristics available modes as well as persistent preview test
-     * results stored in SharedPreferences via TunableKeyManager.
+     * Delegates to {@link VendorTagUtils#isOisSupported(Context, android.hardware.camera2.CameraCharacteristics, String)}.
      */
     private static boolean isOisSupported(Context context, String sensorId) {
-        try {
-            android.hardware.camera2.CameraManager manager = (android.hardware.camera2.CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
-            if (manager != null) {
-                android.hardware.camera2.CameraCharacteristics chars = manager.getCameraCharacteristics(sensorId);
-                if (chars != null) {
-                    // 1. Check for active ON (1) mode within available stabilization modes array
-                    int[] modes = chars.get(android.hardware.camera2.CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION);
-                    if (modes != null) {
-                        for (int mode : modes) {
-                            if (mode == android.hardware.camera2.CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) {
-                                Log.d(TAG, "Sensor " + sensorId + " OIS mode ON (1) found in availableOpticalStabilization -> supported");
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to inspect CameraCharacteristics for sensor " + sensorId, e);
-        }
-
-        // 2. Check persistent SharedPreferences cached from preview CaptureResult via TunableKeyManager
-        if (TunableKeyManager.hasKey(context, sensorId, "android.lens.opticalStabilizationMode", "1")) {
-            Log.d(TAG, "Sensor " + sensorId + " OIS confirmed via TunableKeyManager in SharedPreferences -> supported");
+        if (VendorTagUtils.isOisSupported(context, null, sensorId)) {
+            Log.d(TAG, "Sensor " + sensorId + " OIS is supported");
             return true;
         }
-
         Log.d(TAG, "Sensor " + sensorId + " OIS is NOT supported");
         return false;
     }

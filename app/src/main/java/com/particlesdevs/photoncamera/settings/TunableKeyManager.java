@@ -91,19 +91,26 @@ public class TunableKeyManager {
         return false;
     }
 
+    private static String getSystemFlagKey(String sensorId, String flagName) {
+        return "pref_sysflag_" + sensorId + "_" + flagName;
+    }
+
     /**
-     * Updates or adds a single tested key for the sensor and persists the list to SharedPreferences.
-     *
-     * @param sensorId  physical camera ID
-     * @param keyToSave the tunable key object to persist
+     * Universal method to save a hidden system boolean flag for a given sensor.
+     * Isolated from user tunable keys.
      */
-    public static void saveKey(String sensorId, VendorTagUtils.TunableKey keyToSave) {
-        Context context = PhotonCamera.getSettingsManagerStatic() != null
-                ? PhotonCamera.getSettingsManagerStatic().getContext() : null;
-        if (context == null || sensorId == null || keyToSave == null) return;
-        List<VendorTagUtils.TunableKey> keys = loadKeys(context, sensorId);
-        keys.removeIf(k -> k != null && keyToSave.name.equalsIgnoreCase(k.name));
-        keys.add(keyToSave);
-        saveKeys(context, sensorId, keys);
+    public static void setSystemFlag(Context context, String sensorId, String flagName, boolean value) {
+        if (context == null || sensorId == null || flagName == null || flagName.isEmpty()) return;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        prefs.edit().putBoolean(getSystemFlagKey(sensorId, flagName), value).apply();
+    }
+
+    /**
+     * Universal method to read a hidden system boolean flag for a given sensor.
+     */
+    public static boolean getSystemFlag(Context context, String sensorId, String flagName, boolean defaultValue) {
+        if (context == null || sensorId == null || flagName == null || flagName.isEmpty()) return defaultValue;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        return prefs.getBoolean(getSystemFlagKey(sensorId, flagName), defaultValue);
     }
 }

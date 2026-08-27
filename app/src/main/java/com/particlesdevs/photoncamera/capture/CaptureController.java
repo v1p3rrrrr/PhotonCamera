@@ -2203,8 +2203,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             Log.d(TAG, "Focus:" + focus);
             captureBuilder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_CANCEL);
 
-            int[] stabilizationModes = mCameraCharacteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION);
-            if (stabilizationModes != null && stabilizationModes.length > 1) {
+            if (VendorTagUtils.isOisSupported(activity, mCameraCharacteristics, physicalID)) {
                 Log.d(TAG, "LENS_OPTICAL_STABILIZATION_MODE");
                 applyOisMode(captureBuilder, true);//Fix ois bugs for preview and burst
             }
@@ -2830,8 +2829,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      * @param isStillCapture true if configuring a still capture request, false for preview stream
      */
     private void applyOisMode(CaptureRequest.Builder builder, boolean isStillCapture) {
-        int[] stabilizationModes = mCameraCharacteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION);
-        if (stabilizationModes != null && stabilizationModes.length > 1) {
+        if (VendorTagUtils.isOisSupported(activity, mCameraCharacteristics, physicalID)) {
             int oisMode = this.oisMode;
             if (oisMode == 2) {
                 // Always Off
