@@ -607,6 +607,44 @@ public class IsoExpoSelector {
         }
 
         /**
+         * Resolves the optimal ISO and Shutter pair when exposure exceeds maxExposure:
+         * 1. Snap UP: if within 10% shutter loss, raises to clean analog ISO and shortens shutter (100% energy).
+         * 2. Snap DOWN: if within 5% brightness drop, lowers to clean analog ISO at maxExposure.
+         * 3. Fallback: unquantized continuous sensor ISO (100% energy preservation).
+         */
+        private void applyHeadroomAwareQuantization(double targetEnergy, long minExposure, long maxExposure, double maxIso, int isoLimit) {
+            // 1. Calculate required continuous ISO strictly relative to maxExposure ceiling
+            double continuousIso = targetEnergy / (double) maxExposure;
+            long isoDown = snapToCleanIso(continuousIso, false);
+            long isoUp = snapToCleanIso(continuousIso, true);
+
+            // 2. Try snapping UP to higher clean ISO (shortens shutter, 100% energy)
+            double shutterAtIsoUp = targetEnergy / (double) isoUp;
+            if ((double) isoUp <= maxIso && shutterAtIsoUp >= (double) minExposure && (shutterAtIsoUp >= (double) maxExposure * 0.90)) {
+                iso = (int) isoUp;
+                exposure = (long) Math.round(shutterAtIsoUp);
+                return;
+            }
+
+            // 3. Try snapping DOWN to lower clean ISO (holds maxExposure, loses < 5% brightness)
+            if (isoDown <= continuousIso && (double) isoDown >= continuousIso * 0.95 && isoDown >= 100 && (double) isoDown <= maxIso) {
+                iso = (int) isoDown;
+                exposure = maxExposure;
+                return;
+            }
+
+            // 4. Fallback: exact unquantized sensor gain (100% energy preservation)
+            double boundedIso = Math.max(100.0, Math.min(maxIso, continuousIso));
+            iso = (int) Math.ceil(boundedIso);
+            exposure = (long) Math.round(Math.max((double) minExposure, Math.min((double) maxExposure, targetEnergy / (double) iso)));
+
+            // Set ISO limit flag if continuous required ISO exceeded user ceiling
+            if (isoLimit != -1 && continuousIso > maxIso) {
+                isIsoLimited = true;
+            }
+        }
+
+        /**
          * Shifts the exposure balance by the given multiplier k (shutter/ISO trade-off).
          * A multiplier > 1.0 reduces shutter duration and increases ISO (freezing motion).
          * A multiplier < 1.0 increases shutter duration and reduces ISO (cleaner image).
@@ -648,14 +686,14 @@ public class IsoExpoSelector {
 
             // 5. Exposure limits check with clean ISO snapping down
             if (exposure > effectiveExposureHigh) {
-                exposure = effectiveExposureHigh;
-                if ((shutterLimitSec > 0.0f || shutterLimitSec == -2.0f) && !useTripod) isShutterLimited = true;
-                double continuousIso = targetEnergy / exposure;
-                iso = (int) snapToCleanIso(continuousIso, false);
+                applyHeadroomAwareQuantization(targetEnergy, exposurelow, effectiveExposureHigh, isoHighNormalized, isoLimit);
+                if (exposure >= effectiveExposureHigh && (shutterLimitSec > 0.0f || shutterLimitSec == -2.0f) && !useTripod) {
+                    isShutterLimited = true;
+                }
             } else if (exposure < exposurelow) {
                 exposure = exposurelow;
-                double continuousIso = targetEnergy / exposure;
-                iso = (int) snapToCleanIso(continuousIso, false);
+                double continuousIso = targetEnergy / (double) exposure;
+                iso = (int) Math.ceil(Math.max(100.0, Math.min(isoHighNormalized, continuousIso)));
             }
 
             // 6. Final safety clamps
@@ -700,10 +738,12 @@ public class IsoExpoSelector {
             for (double rung = MIN_ISO_NORMALIZED; rung <= isoHighNormalized && n < 14; rung *= CLEAN_ISO_STEP_FACTOR) {
                 ladder[n++] = rung;
             }
-            if (isoAnalogNormalized > MIN_ISO_NORMALIZED && isoAnalogNormalized < isoHighNormalized) {
+            if (isoAnalogNormalized > MIN_ISO_NORMALIZED && isoAnalogNormalized < isoHighNormalized && !containsRung(ladder, n, isoAnalogNormalized)) {
                 ladder[n++] = isoAnalogNormalized;
             }
-            ladder[n++] = isoHighNormalized; // true sensor ceiling, always available as a last resort
+            if (!containsRung(ladder, n, isoHighNormalized)) {
+                ladder[n++] = isoHighNormalized; // true sensor ceiling, always available as a last resort
+            }
             java.util.Arrays.sort(ladder, 0, n);
 
             if (snapUp) {
@@ -722,6 +762,13 @@ public class IsoExpoSelector {
                 }
                 return result;
             }
+        }
+
+        private boolean containsRung(double[] ladder, int count, double value) {
+            for (int i = 0; i < count; i++) {
+                if (Math.abs(ladder[i] - value) < 0.01) return true;
+            }
+            return false;
         }
 
         private static double log2(double x) {
