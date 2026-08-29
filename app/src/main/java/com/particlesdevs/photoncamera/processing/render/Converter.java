@@ -41,7 +41,7 @@ public class Converter {
             0.000000f, 0.000000f, 1.211968f
     };
     private static final int NO_ILLUMINANT = -1;
-    private static final SparseIntArray sStandardIlluminates = new SparseIntArray();
+    public static final SparseIntArray sStandardIlluminates = new SparseIntArray();
     /**
      * The D50 whitepoint coordinates in CIE XYZ colorspace.
      */
@@ -219,7 +219,7 @@ public class Converter {
      * @param Z the CIE XYZ Z coordinate.
      * @return the [x, y] chromaticity coordinates as doubles.
      */
-    private static double[] calculateCIExyCoordinates(double X, double Y, double Z) {
+    public static double[] calculateCIExyCoordinates(double X, double Y, double Z) {
         double[] ret = new double[]{0, 0};
         ret[0] = X / (X + Y + Z);
         ret[1] = Y / (X + Y + Z);
@@ -238,7 +238,7 @@ public class Converter {
      * @param y y chromaticity component.
      * @return the CCT associated with this chromaticity coordinate.
      */
-    private static double calculateColorTemperature(double x, double y) {
+    public static double calculateColorTemperature(double x, double y) {
         double n = (x - 0.332) / (y - 0.1858);
         return -449 * Math.pow(n, 3) + 3525 * Math.pow(n, 2) - 6823.3 * n + 5520.33;
     }
@@ -249,7 +249,7 @@ public class Converter {
      * @param m      matrix to invert.
      * @param output set the output to be the inverse of m.
      */
-    private static boolean invert(float[] m, /*out*/float[] output) {
+    public static boolean invert(float[] m, /*out*/float[] output) {
         double a00 = m[0];
         double a01 = m[1];
         double a02 = m[2];
@@ -291,7 +291,7 @@ public class Converter {
      * @param input  3 dimensional vector to map.
      * @param output 3 dimensional vector result.
      */
-    private static void map(float[] matrix, float[] input, /*out*/float[] output) {
+    public static void map(float[] matrix, float[] input, /*out*/float[] output) {
         output[0] = input[0] * matrix[0] + input[1] * matrix[1] + input[2] * matrix[2];
         output[1] = input[0] * matrix[3] + input[1] * matrix[4] + input[2] * matrix[5];
         output[2] = input[0] * matrix[6] + input[1] * matrix[7] + input[2] * matrix[8];
@@ -310,11 +310,11 @@ public class Converter {
         output[8] = a[6] * b[2] + a[7] * b[5] + a[8] * b[8];
     }
 
-    private static double lerp(double a, double b, double f) {
+    public static double lerp(double a, double b, double f) {
         return (a * (1.0f - f)) + (b * f);
     }
 
-    private static void lerp(float[] a, float[] b, double f, /*out*/float[] result) {
+    public static void lerp(float[] a, float[] b, double f, /*out*/float[] result) {
         for (int i = 0; i < 9; i++) {
             result[i] = (float) lerp(a[i], b[i], f);
         }

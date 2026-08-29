@@ -18,6 +18,9 @@ package com.particlesdevs.photoncamera.manual;
  */
 
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.params.ColorSpaceTransform;
+import android.hardware.camera2.params.RggbChannelVector;
 
 import com.particlesdevs.photoncamera.settings.PreferenceKeys;
 import com.particlesdevs.photoncamera.util.Log;
@@ -26,6 +29,7 @@ import androidx.annotation.NonNull;
 
 import com.particlesdevs.photoncamera.circularbarlib.control.ManualParamModel;
 import com.particlesdevs.photoncamera.capture.CaptureController;
+import com.particlesdevs.photoncamera.processing.parameters.ColorTemperatureConverter;
 import com.particlesdevs.photoncamera.processing.parameters.ExposureIndex;
 
 import java.util.Observable;
@@ -42,6 +46,7 @@ public class ParamController implements Observer {
     public int EV = 0;
     public long SHUTTER = -1;
     public float FOCUS = -1;
+    public int WB = 0;
     private static final String TAG = "ParamController";
     private final CaptureController captureController;
     private ManualParamModel manualParamModel;
@@ -113,6 +118,37 @@ public class ParamController implements Observer {
         captureController.rebuildPreviewBuilder();
     }
 
+    public void setWB(int wbVal) {
+        CaptureRequest.Builder builder = captureController.mPreviewRequestBuilder;
+        if (builder == null) {
+            Log.w(TAG, "setWB(): mPreviewRequestBuilder is null");
+            return;
+        }
+        if (wbVal == (int) ManualParamModel.WB_AUTO || wbVal == 0) {
+            builder.set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO);
+            builder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_FAST);
+            Log.d("WB_REQUEST_DEBUG", "setWB: Switched to AUTO AWB");
+        } else {
+            RggbChannelVector gains = ColorTemperatureConverter.kelvinToRggb(wbVal, CaptureController.mCameraCharacteristics);
+            ColorSpaceTransform transform = ColorTemperatureConverter.createColorTransform(wbVal, CaptureController.mCameraCharacteristics);
+
+            builder.set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_OFF);
+            builder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
+            builder.set(CaptureRequest.COLOR_CORRECTION_GAINS, gains);
+            if (transform != null) {
+                builder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, transform);
+            }
+
+            Log.d("WB_REQUEST_DEBUG", "setWB: Manual Kelvin=" + wbVal
+                    + " | Gains: [R=" + gains.getRed()
+                    + ", Geven=" + gains.getGreenEven()
+                    + ", Godd=" + gains.getGreenOdd()
+                    + ", B=" + gains.getBlue() + "]"
+                    + " | Transform: " + transform);
+        }
+        captureController.rebuildPreviewBuilder();
+    }
+
     public boolean isManualMode() {
         if (manualParamModel != null)
             return manualParamModel.isManualMode();
@@ -140,12 +176,20 @@ public class ParamController implements Observer {
                 FOCUS = (float) model.getCurrentFocusValue();
                 setFocus((float) model.getCurrentFocusValue());
             }
+            if (object.equals(ManualParamModel.ID_WB)) {
+                WB = (int) model.getCurrentWbValue();
+                setWB((int) model.getCurrentWbValue());
+            }
             if(object.equals(ManualParamModel.PANEL_INVISIBILITY)) {
                 Log.d(TAG, "update: " + model.isManualMode());
                 ISO = -1;
                 EV = 0;
                 SHUTTER = -1;
                 FOCUS = -1;
+                if (model.getCurrentWbValue() == ManualParamModel.WB_AUTO) {
+                    WB = 0;
+                    setWB(0);
+                }
                 captureController.unlockFocus();
             }
         }
@@ -161,6 +205,8 @@ public class ParamController implements Observer {
                 setShutter(SHUTTER, ISO);
             if(FOCUS != -1)
                 setFocus(FOCUS);
+            if(WB != 0)
+                setWB(WB);
         }
     }
 

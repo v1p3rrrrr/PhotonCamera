@@ -40,6 +40,7 @@ import android.hardware.camera2.params.MeteringRectangle;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.hardware.camera2.params.RggbChannelVector;
 import android.media.CamcorderProfile;
 import android.media.ImageReader;
 import android.media.MediaRecorder;
@@ -84,6 +85,7 @@ import com.particlesdevs.photoncamera.processing.parameters.ExposureIndex;
 import com.particlesdevs.photoncamera.processing.parameters.FrameNumberSelector;
 import com.particlesdevs.photoncamera.processing.parameters.IsoExpoSelector;
 import com.particlesdevs.photoncamera.processing.parameters.ResolutionSolution;
+import com.particlesdevs.photoncamera.processing.parameters.ColorTemperatureConverter;
 import com.particlesdevs.photoncamera.settings.PreferenceKeys;
 import com.particlesdevs.photoncamera.settings.SensorConfigInjector;
 import com.particlesdevs.photoncamera.settings.annotations.SensorConfig;
@@ -576,6 +578,31 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             mFlashed = state != null && state == CaptureResult.FLASH_STATE_PARTIAL || state == CaptureResult.FLASH_STATE_FIRED;
             mPreviewCaptureResult = result;
             mPreviewCaptureRequest = request;
+
+            RggbChannelVector halGains = result.get(CaptureResult.COLOR_CORRECTION_GAINS);
+            ColorSpaceTransform halTransform = result.get(CaptureResult.COLOR_CORRECTION_TRANSFORM);
+            Integer halAwb = result.get(CaptureResult.CONTROL_AWB_MODE);
+            Integer halColorMode = result.get(CaptureResult.COLOR_CORRECTION_MODE);
+            Rational[] halNeutralPoint = result.get(CaptureResult.SENSOR_NEUTRAL_COLOR_POINT);
+
+            /** Spawning dozens of temp arrays and strings 60 fps puts a lot of pressure on the Android GC, 
+                and on weaker chips it can cause viewfinder hiccups over time.
+                
+            int estimatedKelvin = ColorTemperatureConverter.neutralPointToKelvin(halNeutralPoint);
+
+            if (paramController == null || paramController.WB == 0) {
+                Log.d("WB_COMPARE_DEBUG", "[AUTO AWB] Scene Estimated K=" + estimatedKelvin
+                        + " | GAINS=" + halGains
+                        + " | TRANSFORM=" + halTransform
+                        + " | NEUTRAL_POINT=" + Arrays.toString(halNeutralPoint));
+            } else {
+                Log.d("WB_COMPARE_DEBUG", "[MANUAL WB Target=" + paramController.WB + "K] (HAL Measured K=" + estimatedKelvin + ")"
+                        + " | GAINS=" + halGains
+                        + " | TRANSFORM=" + halTransform
+                        + " | NEUTRAL_POINT=" + Arrays.toString(halNeutralPoint));
+            }
+            */
+
             VendorTagUtils.resultSessionApply(result, physicalID);
             process(result);
             cameraEventsListener.onPreviewCaptureCompleted(result);
@@ -2208,6 +2235,43 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                 applyOisMode(captureBuilder, true);//Fix ois bugs for preview and burst
             }
 
+            if (paramController != null && paramController.WB != 0) {
+                int wbVal = paramController.WB;
+                if (wbVal >= 2000) {
+                    RggbChannelVector gains = ColorTemperatureConverter.kelvinToRggb(wbVal, mCameraCharacteristics);
+                    ColorSpaceTransform transform = ColorTemperatureConverter.createColorTransform(wbVal, mCameraCharacteristics);
+
+                    captureBuilder.set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_OFF);
+                    captureBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
+                    captureBuilder.set(CaptureRequest.COLOR_CORRECTION_GAINS, gains);
+                    if (transform != null) {
+                        captureBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, transform);
+                    }
+
+                    Log.d("WB_RESULT_DEBUG", "captureStillPicture WB Set: Kelvin=" + wbVal
+                            + " | Gains=" + gains
+                            + " | Transform=" + transform);
+                }
+            }
+
+            if (paramController != null && paramController.WB != 0) {
+                int wbVal = paramController.WB;
+                if (wbVal >= 2000) {
+                    RggbChannelVector gains = ColorTemperatureConverter.kelvinToRggb(wbVal, mCameraCharacteristics);
+                    ColorSpaceTransform transform = ColorTemperatureConverter.createColorTransform(wbVal, mCameraCharacteristics);
+                    captureBuilder.set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_OFF);
+                    captureBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
+                    captureBuilder.set(CaptureRequest.COLOR_CORRECTION_GAINS, gains);
+                    if (transform != null) {
+                        captureBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, transform);
+                    }
+
+                    Log.d("WB_RESULT_DEBUG", "captureStillPicture WB Set: Kelvin=" + wbVal
+                            + " | Gains=" + gains
+                            + " | Transform=" + transform);
+                }
+            }
+
             for (int i = 0; i < 3; i++) {
                 Log.d(TAG, "Temperature:" + mPreviewTemp[i]);
             }
@@ -2354,6 +2418,17 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     Log.v("BurstCounter", "CaptureCompleted! FrameCount:" + frameCount);
                     Object time = result.get(CaptureResult.SENSOR_TIMESTAMP);
                     Log.d(TAG, "Timestamp:" + time);
+                    if (paramController != null && paramController.WB != 0) {
+                        RggbChannelVector stillGains = result.get(CaptureResult.COLOR_CORRECTION_GAINS);
+                        ColorSpaceTransform stillTransform = result.get(CaptureResult.COLOR_CORRECTION_TRANSFORM);
+                        Integer stillAwb = result.get(CaptureResult.CONTROL_AWB_MODE);
+                        Rational[] stillNeutralPoint = result.get(CaptureResult.SENSOR_NEUTRAL_COLOR_POINT);
+
+                        Log.d("WB_RESULT_DEBUG", "Still Picture HAL Result: AWB=" + stillAwb
+                                + " | GAINS=" + stillGains
+                                + " | TRANSFORM=" + stillTransform
+                                + " | NEUTRAL_POINT=" + Arrays.toString(stillNeutralPoint));
+                    }
                     if (time != null) {
                         // get exposure multiply ISO and exposure time
                         Object isoKey = result.get(CaptureResult.SENSOR_SENSITIVITY);

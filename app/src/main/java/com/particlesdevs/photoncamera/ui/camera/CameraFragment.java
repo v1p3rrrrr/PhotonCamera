@@ -82,6 +82,7 @@ import com.particlesdevs.photoncamera.databinding.CameraFragmentBinding;
 import com.particlesdevs.photoncamera.gallery.ui.GalleryActivity;
 import com.particlesdevs.photoncamera.pro.SupportedDevice;
 import com.particlesdevs.photoncamera.processing.ProcessingEventsListener;
+import com.particlesdevs.photoncamera.processing.parameters.ColorTemperatureConverter;
 import com.particlesdevs.photoncamera.processing.parameters.ExposureIndex;
 import com.particlesdevs.photoncamera.processing.parameters.IsoExpoSelector;
 import com.particlesdevs.photoncamera.settings.PreferenceKeys;
@@ -707,29 +708,28 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     }
 
     private String calculateWhitebalanceString(CaptureResult result) {
-        Integer awbMode = result.get(CaptureResult.CONTROL_AWB_MODE);
-        String prefix = (awbMode != null && awbMode == CaptureRequest.CONTROL_AWB_MODE_OFF) ? "MWB" : "AWB";
+        int wbVal = (captureController != null && captureController.getParamController() != null)
+                ? captureController.getParamController().WB : 0;
 
+        // 1. Manual Kelvin dialed on the circular knob (2000K - 10000K)
+        if (wbVal >= 2000) {
+            return "MWB · " + wbVal + "K";
+        }
+
+        // 2. Dynamic Auto White Balance (AWB): calculate live CCT from sensor neutral point using shared model
         android.util.Rational[] neutralPoint = result.get(CaptureResult.SENSOR_NEUTRAL_COLOR_POINT);
         if (neutralPoint == null || neutralPoint.length < 3) {
-            if (captureController != null && captureController.mPreviewTemp != null && captureController.mPreviewTemp.length >= 3) {
+            if (captureController != null) {
                 neutralPoint = captureController.mPreviewTemp;
             }
         }
 
         if (neutralPoint != null && neutralPoint.length >= 3) {
-            double r = neutralPoint[0].doubleValue();
-            double b = neutralPoint[2].doubleValue();
-            if (r > 0.001) {
-                // Approximate Correlated Color Temperature (CCT) in Kelvin from sensor neutral point
-                double ratio = b / r;
-                double kelvin = 3000.0 * Math.pow(ratio, 0.75);
-                int roundedKelvin = (int) (Math.round(kelvin / 100.0) * 100);
-                roundedKelvin = Math.max(2000, Math.min(10000, roundedKelvin));
-                return prefix + " · " + roundedKelvin + "K";
-            }
+            int liveKelvin = ColorTemperatureConverter.neutralPointToKelvin(neutralPoint);
+            return "AWB · " + liveKelvin + "K";
         }
-        return prefix;
+
+        return "AWB";
     }
 
     private Bitmap mHistBitmap = null;
@@ -1198,6 +1198,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             auxButtonsViewModel.setActiveId(PreferenceKeys.getCameraID());
             Boolean flashAvailable = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
             mCameraUIView.showFlashButton(flashAvailable != null && flashAvailable);
+            manualModeConsole.setPreserveManualWb(PreferenceKeys.isPreserveManualWbOn());
             manualModeConsole.init(activity, characteristics);
             manualModeConsole.onResume();
         }

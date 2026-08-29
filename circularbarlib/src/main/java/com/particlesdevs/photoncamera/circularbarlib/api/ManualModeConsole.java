@@ -36,4 +36,6 @@ public interface ManualModeConsole {
     boolean isFocusParameterSelected();
 
     boolean isManualFocusModeActive();
+
+    void setPreserveManualWb(boolean preserve);
 }
