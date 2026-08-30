@@ -438,6 +438,12 @@ public class GLProg implements AutoCloseable {
     public void setVar(String name, float... vars) {
         setVar(name,true,vars);
     }
+    /** Sets a float array uniform (uniform float name[len]). */
+    public void setVarFloats(String name, float... vars) {
+        int address = glGetUniformLocation(mCurrentProgramActive, name);
+        glUniform1fv(address, vars.length, vars, 0);
+        checkEglError("setVarFloats:" + name);
+    }
 
     public void setVarU(String name, Point var) {
         setVarU(name,var.x,var.y);

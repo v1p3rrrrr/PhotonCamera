@@ -44,7 +44,7 @@ public class RotateWatermark extends Node {
         //else lutbm = BitmapFactory.decodeResource(PhotonCamera.getResourcesStatic(), R.drawable.neutral_lut);
         glProg.setDefine("WATERMARK",watermarkNeeded);
 
-        glProg.useAssetProgram("addwatermark_rotate");
+        glProg.useAssetProgram("RotateWatermark/addwatermark_rotate");
         try {
             File waterExternal = new File(FileManager.sPHOTON_TUNING_DIR,"watermark.png");
             if (waterExternal.exists()) watermark = new GLImage(waterExternal);

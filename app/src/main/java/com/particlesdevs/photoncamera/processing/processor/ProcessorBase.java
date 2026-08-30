@@ -80,7 +80,8 @@ public abstract class ProcessorBase {
     public void IncreaseWLBL(Parameters parameters) {
         //Increase WL and BL for processing
         for (int i = 0; i < 4; i++) {
-            parameters.blackLevel[i] *= FAKE_WL / parameters.whiteLevel;
+            //parameters.blackLevel[i] *= FAKE_WL / parameters.whiteLevel;
+            parameters.blackLevel[i] = 0;
         }
         IncreaseWL(parameters);
     }

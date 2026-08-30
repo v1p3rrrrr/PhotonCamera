@@ -347,9 +347,9 @@ public class ExposureFusionBayer2 extends Node {
     GLTexture interpolatedCurve;
     GLTexture shadowMap;
     
-    @Tunable(title = "Enable", category = "Exposure Fusion", defaultValue = 1, min = 0, max = 1, step = 1,
+    @Tunable(title = "Enable", category = "Exposure Fusion", defaultValue = 0, min = 0, max = 1, step = 1,
             description = "Enable Exposure Fusion Post Processing")
-    boolean enable = true;
+    boolean enable;
     
     @Tunable(
         title = "Use Symmetric Exposure Fork",

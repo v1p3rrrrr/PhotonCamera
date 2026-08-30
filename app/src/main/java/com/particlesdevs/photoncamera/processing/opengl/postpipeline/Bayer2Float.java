@@ -69,7 +69,7 @@ public class Bayer2Float extends Node {
         glProg.setDefine("RGBLAYOUT",basePipeline.mSettings.alignAlgorithm == 2);
         glProg.setDefine("TESTPATTERN",testPattern);
         glProg.setDefine("TP", testPatternIndex);
-        glProg.useAssetProgram("tofloat");
+        glProg.useAssetProgram("Bayer2Float/tofloat");
         glProg.setTexture("InputBuffer", in);
         glProg.setVar("CfaPattern", basePipeline.mParameters.cfaPattern);
         glProg.setVar("patSize", 2);
@@ -77,7 +77,7 @@ public class Bayer2Float extends Node {
         glProg.setVar("RawSize", basePipeline.mParameters.rawSize);
         glProg.setVar("RawInvSize", 1.0f/basePipeline.mParameters.rawSize.x, 1.0f/basePipeline.mParameters.rawSize.y);
         Log.d(Name, "whitelevel:" + basePipeline.mParameters.whiteLevel);
-        glProg.setVarU("whitelevel", (basePipeline.mParameters.whiteLevel));
+        glProg.setVarU("whitelevel", (int) basePipeline.mParameters.whiteLevel);
         glProg.setTexture("GainMap", GainMapTex);
         if(testPattern && testPatternIndex == 0) {
             try {

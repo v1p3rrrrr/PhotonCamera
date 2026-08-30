@@ -36,7 +36,7 @@ public class ESD3DBayerCS extends Node {
         grad = basePipeline.main3;
         glProg.setLayout(16,16,1);
         glProg.setDefine("INSIZE",basePipeline.workSize);
-        glProg.useAssetProgram("diffbayercs",true);
+        glProg.useAssetProgram("ESD3DBayerCS/diffbayercs",true);
         glProg.setTextureCompute("inTexture", previousNode.WorkingTexture,false);
         glProg.setTextureCompute("outTexture", grad,true);
         glProg.computeAuto(grad.mSize,1);

@@ -386,7 +386,7 @@ public class AWB extends Node {
             awb_lut = new GLTexture(awb_lutbm, GL_LINEAR, GL_CLAMP_TO_EDGE, 0);
             glProg.setDefine("LUT", true);
         }
-        glProg.useAssetProgram("awbgetchroma");
+        glProg.useAssetProgram("AWB/awbgetchroma");
         glProg.setTexture("InputBuffer", r1);
         if (awb_lut != null) glProg.setTexture("LookupTable", awb_lut);
         glProg.drawBlocks(basePipeline.main3, r1.mSize);

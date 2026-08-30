@@ -15,12 +15,12 @@ public class ChromaticFlow extends Node {
     @Override
     public void Run() {
 
-        glProg.useAssetProgram("chromaticgrad");
+        glProg.useAssetProgram("ChromaticFlow/chromaticgrad");
         glProg.setTexture("InputBuffer",previousNode.WorkingTexture);
         glProg.drawBlocks(basePipeline.main3);
 
         glProg.setDefine("SIZE",previousNode.WorkingTexture.mSize);
-        glProg.useAssetProgram("chromaticcomp");
+        glProg.useAssetProgram("ChromaticFlow/chromaticcomp");
         glProg.setTexture("DiffBuffer",basePipeline.main3);
         glProg.setTexture("InputBuffer",previousNode.WorkingTexture);
         WorkingTexture = basePipeline.getMain();

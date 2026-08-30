@@ -72,7 +72,7 @@ public class Equalization extends Node {
         glProg.setDefine("SAMPLING",resize);
         glProg.setDefine("ANALYZEINTENSE", analyzeIntensity);
         glProg.setDefine("LUT",true);
-        glProg.useAssetProgram("analyze");
+        glProg.useAssetProgram("Equalization/analyze");
         File customAnalyzelut = new File(FileManager.sPHOTON_TUNING_DIR,"analyze_lut.png");
         GLImage analyze_lutbm = null;
         GLTexture analyze_lut = null;
@@ -736,7 +736,7 @@ public class Equalization extends Node {
         }*/
         endT("Equalization Part 2");
         startT();
-        glProg.useAssetProgram("equalize");
+        glProg.useAssetProgram("Equalization/equalize");
         if(lut != null) glProg.setTexture("LookupTable",lut);
         glProg.setTexture("Histogram",histogram);
         //glProg.setTexture("Shadows",shadows);

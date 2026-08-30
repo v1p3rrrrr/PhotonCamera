@@ -37,6 +37,11 @@ import java.util.concurrent.Executors;
  */
 public class DynamicNoiseStore {
     private static final String DIR_NAME = "noise_model";
+    /** Store schema/estimator revision. Bump when the estimator changes
+     * scale (calibrated blend, luma operator, minBr fit fix): samples
+     * persisted by an older revision no longer match and are discarded on
+     * load. */
+    private static final int CURRENT_VERSION = 5;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     // Single low-priority daemon thread for async disk persistence.
     private static final ExecutorService ioExecutor = Executors.newSingleThreadExecutor(r -> {
@@ -58,14 +63,21 @@ public class DynamicNoiseStore {
     private final Set<Integer> loaded = ConcurrentHashMap.newKeySet();
 
     /**
-     * Single S/O noise-model estimation sample.
+     * Single S/O noise-model estimation sample. Carries the scene key of the
+     * commit that produced it (0 for legacy/persistence without a key) so a
+     * re-shot scene can be matched and sharpened in place.
      */
     public static final class NoiseEstimate {
         public final double s;
         public final double o;
+        public final long key;
         public NoiseEstimate(double s, double o) {
+            this(s, o, 0L);
+        }
+        public NoiseEstimate(double s, double o, long key) {
             this.s = s;
             this.o = o;
+            this.key = key;
         }
     }
 
@@ -82,7 +94,11 @@ public class DynamicNoiseStore {
         private int totalEstimations = 0;
 
         public void add(double s, double o) {
-            samples.add(new NoiseEstimate(s, o));
+            add(s, o, 0L);
+        }
+
+        public void add(double s, double o, long key) {
+            samples.add(new NoiseEstimate(s, o, key));
             totalEstimations++;
             // Adaptive moving window: cap at MAX_WINDOW. Before 10 estimations the
             // window grows with the data (averaging all available); once 10 is
@@ -92,15 +108,40 @@ public class DynamicNoiseStore {
             }
         }
 
+        /**
+         * Duplicate-scene sharpening: replace the most recent sample with
+         * this key by the lower-S pair, in place - the window never slides,
+         * so other scenes keep their slots. No-op for unknown keys.
+         */
+        public void replaceMin(long key, double s, double o) {
+            if (key == 0L) return;
+            for (int i = samples.size() - 1; i >= 0; i--) {
+                NoiseEstimate n = samples.get(i);
+                if (n.key == key) {
+                    if (s < n.s) samples.set(i, new NoiseEstimate(s, o, key));
+                    return;
+                }
+            }
+        }
+
         public NoiseEstimate average() {
             if (samples.isEmpty()) return null;
+            // Lower-half trimmed mean (minimum-statistics style): per-capture
+            // noise estimates are right-skewed because scene texture leaks
+            // positively into the estimate (measured variance = noise + leak
+            // >= noise), so the lower half of the window tracks the
+            // clean-capture noise floor; a plain mean is dragged up by every
+            // textured capture. Trimmed instead of a pure minimum so one
+            // unlucky low capture cannot latch the store low.
+            ArrayList<NoiseEstimate> sorted = new ArrayList<>(samples);
+            sorted.sort((a, b) -> Double.compare(a.s, b.s));
+            int keep = Math.max(1, (sorted.size() + 1) / 2);
             double ss = 0.0, so = 0.0;
-            for (NoiseEstimate n : samples) {
-                ss += n.s;
-                so += n.o;
+            for (int i = 0; i < keep; i++) {
+                ss += sorted.get(i).s;
+                so += sorted.get(i).o;
             }
-            int n = samples.size();
-            return new NoiseEstimate(ss / n, so / n);
+            return new NoiseEstimate(ss / keep, so / keep);
         }
 
         public int count() {
@@ -159,6 +200,8 @@ public class DynamicNoiseStore {
 
     /** Serialized representation of one physicalID's state. */
     private static final class StoreDto {
+        @SerializedName("version")
+        int version;
         @SerializedName("physicalID")
         int physicalID;
         @SerializedName("minIso")
@@ -180,6 +223,12 @@ public class DynamicNoiseStore {
         try (FileReader r = new FileReader(f)) {
             StoreDto dto = GSON.fromJson(r, StoreDto.class);
             if (dto == null) return;
+            if (dto.version < CURRENT_VERSION) {
+                Log.d("DynamicNoiseStore", "Discarding store v" + dto.version
+                        + " < v" + CURRENT_VERSION + " pid=" + physicalID
+                        + " (estimator recalibrated)");
+                return;
+            }
             if (dto.minIso > 0) minIso.put(physicalID, dto.minIso);
             if (dto.samples != null) {
                 rawSamples.put(physicalID, new ArrayList<>(dto.samples));
@@ -206,6 +255,7 @@ public class DynamicNoiseStore {
         Integer base = minIso.get(physicalID);
         if (samples == null || base == null) return;
         final StoreDto dto = new StoreDto();
+        dto.version = CURRENT_VERSION;
         dto.physicalID = physicalID;
         dto.minIso = base;
         dto.samples = new ArrayList<>(samples);
@@ -245,7 +295,7 @@ public class DynamicNoiseStore {
             for (RawSample rs : samples) {
                 int bin = isoBin(rs.iso, newMinIso);
                 IsoBin ib = bins.computeIfAbsent(bin, k -> new IsoBin());
-                ib.add(rs.s, rs.o);
+                ib.add(rs.s, rs.o, rs.key);
             }
         }
         store.put(physicalID, bins);
@@ -255,10 +305,14 @@ public class DynamicNoiseStore {
      * First commits the estimation to the noise map (unless this scene was
      * already measured), then returns the blended (averaged) S/O for the
      * resolved ISO bin. Committing before reading ensures the new sample
-     * participates in the average while the measurement-list guard avoids
-     * duplicate-scene bias. If the committed ISO is a new minimum, the map
-     * is rebuilt against the new reference before reading back. State is
-     * persisted to disk asynchronously after a non-duplicate commit.
+     * participates in the average. A scene still in cooldown does not add a
+     * new sample (which would evict other scenes from the window) but
+     * sharpens its existing sample in place with the lower estimate -
+     * texture leak is one-sided, so the lower of two shots of the same scene
+     * is the cleaner measurement. If the committed ISO is a new minimum, the
+     * map is rebuilt against the new reference before reading back. State is
+     * persisted to disk asynchronously after a commit or an in-place
+     * sharpening.
      *
      * @return blended estimate, or null if the bin is still empty.
      */
@@ -274,7 +328,7 @@ public class DynamicNoiseStore {
         if (allowed) {
             ArrayList<RawSample> samples =
                     rawSamples.computeIfAbsent(physicalID, k -> new ArrayList<>());
-            samples.add(new RawSample(iso, s, o));
+            samples.add(new RawSample(iso, s, o, key));
 
             Integer curMin = minIso.get(physicalID);
             if (curMin == null || iso < curMin) {
@@ -289,15 +343,19 @@ public class DynamicNoiseStore {
                         k -> new ConcurrentHashMap<>());
                 int bin = isoBin(iso, curMin);
                 IsoBin ib = bins.computeIfAbsent(bin, k -> new IsoBin());
-                ib.add(s, o);
+                ib.add(s, o, key);
                 Log.d("DynamicNoiseStore", "Committed pid=" + physicalID
                         + " iso=" + iso + " bin=" + bin + " S=" + s + " O=" + o
                         + " count=" + ib.count() + " total=" + ib.totalEstimations());
             }
             saveAsync(physicalID);
         } else {
-            Log.d("DynamicNoiseStore", "Scene in cooldown, skipped pid=" + physicalID
-                    + " iso=" + iso + " exp=" + exposureTime);
+            // Same scene still in cooldown: replace its sample in place with
+            // the lower pair instead of skipping, never evicting other
+            // scenes' samples from the window.
+            sharpenDuplicate(physicalID, iso, key, s, o);
+            Log.d("DynamicNoiseStore", "Scene in cooldown, sharpened pid=" + physicalID
+                    + " iso=" + iso + " exp=" + exposureTime + " S=" + s + " O=" + o);
         }
 
         Integer baseIso = minIso.get(physicalID);
@@ -307,6 +365,31 @@ public class DynamicNoiseStore {
         IsoBin ib = bins.get(isoBin(iso, baseIso));
         if (ib == null) return null;
         return ib.average();
+    }
+
+    /**
+     * Replaces the most recent raw sample with this scene key by the lower-S
+     * pair (both the persisted raw list and the live bin), in place.
+     */
+    private void sharpenDuplicate(int physicalID, int iso, long key, double s, double o) {
+        if (key == 0L) return;
+        ArrayList<RawSample> samples = rawSamples.get(physicalID);
+        if (samples == null) return;
+        for (int i = samples.size() - 1; i >= 0; i--) {
+            RawSample rs = samples.get(i);
+            if (rs.key == key) {
+                if (s < rs.s) {
+                    samples.set(i, new RawSample(iso, s, o, key));
+                    Map<Integer, IsoBin> bins = store.get(physicalID);
+                    if (bins != null) {
+                        IsoBin ib = bins.get(isoBin(iso, minIso.getOrDefault(physicalID, iso)));
+                        if (ib != null) ib.replaceMin(key, s, o);
+                    }
+                    saveAsync(physicalID);
+                }
+                return;
+            }
+        }
     }
 
     public IsoBin getBin(int physicalID, int iso) {
@@ -327,10 +410,18 @@ public class DynamicNoiseStore {
         final double s;
         @SerializedName("o")
         final double o;
+        /** Scene key of the commit (0 in stores written before keys were
+         *  tracked; such samples never match a re-shot scene). */
+        @SerializedName("key")
+        final long key;
         RawSample(int iso, double s, double o) {
+            this(iso, s, o, 0L);
+        }
+        RawSample(int iso, double s, double o, long key) {
             this.iso = iso;
             this.s = s;
             this.o = o;
+            this.key = key;
         }
     }
 

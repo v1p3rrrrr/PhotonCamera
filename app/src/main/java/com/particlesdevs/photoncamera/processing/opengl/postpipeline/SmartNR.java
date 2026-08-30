@@ -38,7 +38,7 @@ public class SmartNR extends Node {
 
         if (LumaDenoiseLevel > 0.001) {
         GLTexture inpdetect = glUtils.interpolate(previousNode.WorkingTexture,1.0/2.0);
-        glProg.useAssetProgram("noisedetection44");
+        glProg.useAssetProgram("SmartNR/noisedetection44");
         glProg.setTexture("InputBuffer", inpdetect);
         GLTexture detect = new GLTexture(inpdetect.mSize, new GLFormat(GLFormat.DataType.FLOAT_16,3), null,GL_LINEAR,GL_CLAMP_TO_EDGE);
         glProg.drawBlocks(detect);
@@ -46,12 +46,12 @@ public class SmartNR extends Node {
         detect.close();
         GLTexture detectblur = new GLTexture(detectresize);
         glProg.setDefine("TRANSPOSE",1,1);
-        glProg.useAssetProgram("medianfilter");
+        glProg.useAssetProgram("SmartNR/medianfilter");
         glProg.setTexture("InputBuffer",detectresize);
         glProg.drawBlocks(detectblur);
         detectresize.close();
         glProg.setDefine("TRANSPOSE",1,1);
-        glProg.useAssetProgram("medianfilter");
+        glProg.useAssetProgram("SmartNR/medianfilter");
         glProg.setTexture("InputBuffer",detectblur);
         GLFormat format = new GLFormat(detectblur.mFormat);
         format.wrap = GL_CLAMP_TO_EDGE;
@@ -82,7 +82,7 @@ public class SmartNR extends Node {
         glProg.setDefine("STR",str);
         glProg.setDefine("SIZE","("+((double)(previousNode.WorkingTexture.mSize.x))+","+
                 ((double)(previousNode.WorkingTexture.mSize.y))+")");
-        glProg.useAssetProgram("bilateralguide");
+        glProg.useAssetProgram("SmartNR/bilateralguide");
         glProg.setTexture("InputBuffer",previousNode.WorkingTexture);
         glProg.setTexture("NoiseMap",detectblur2);
         //if(tonemaped) {
@@ -115,7 +115,7 @@ public class SmartNR extends Node {
             int size = 3;
             if(ChromaDenoiseLevel > 0.04) size = 4;
             glProg.setDefine("MEDSIZE",size);
-            glProg.useAssetProgram("hybridmedianfiltercolor");
+            glProg.useAssetProgram("SmartNR/hybridmedianfiltercolor");
             glProg.setTexture("InputBuffer", inp);
             WorkingTexture = basePipeline.getMain();
             glProg.drawBlocks(WorkingTexture);
@@ -137,7 +137,7 @@ public class SmartNR extends Node {
                 glProg.drawBlocks(WorkingTexture);
             }
         }*/
-        glProg.useAssetProgram("reinterpolatecolors");
+        glProg.useAssetProgram("SmartNR/reinterpolatecolors");
         glProg.setTexture("InputBuffer", WorkingTexture);
         WorkingTexture = basePipeline.getMain();
         glProg.drawBlocks(WorkingTexture);

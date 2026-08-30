@@ -21,14 +21,16 @@ uniform float significancy;
 #define TILE_AL 16
 #define TILE (TILE_AL/2)
 #define M_PI 3.1415926535897932384626433832795
-#define OFFSETS 5
-// Robust noise-normalized cost: differences are divided by the local noise
-// sigma (shot+read, scaled to the current pyramid level) and truncated at
-// TRUNC sigma so single-pixel outliers (hot pixels, clipping edges) cannot
-// dominate the tile sum. This keeps the cost surface informative on dark,
-// noise-dominated night scenes where raw SAD is flat and the argmin is noise.
-#define ROBUST 1
-#define TRUNC 3.0
+#define OFFSETS 9
+// Cost: plain L1 normalized by the local noise sigma (shot+read, scaled to
+// the current pyramid level by integralNorm). NO truncation: a hot pixel is
+// invisible after the normalize prefilter and the gaussian pyramid (it is
+// ~1/25 of one channel of one tap), so clamping differences at k*sigma does
+// not reject outliers - it only flattens the strong edges and fine texture
+// the matcher runs on, which measurably destroys alignment on detailed real
+// scenes (tools/alignment-bench). The noise normalization itself still
+// matters: it downweights dark noisy pixels and puts the significance gate in
+// statistical units.
 #import median
 
 shared mat4 inputDifferences[TILE*TILE]; // use this to store the 3x3 search grid images differences
@@ -37,19 +39,14 @@ vec4 getPixel(ivec2 coords, highp sampler2D tex) {
     return texelFetch(tex, coords, 0);
 }
 
-vec4 getPixelLaplacian(ivec2 coords, highp sampler2D tex) {
-    ivec2 size = textureSize(tex, 0);
-    coords = clamp(coords, ivec2(1), size - ivec2(2));
-    vec4 center = texelFetch(tex, coords, 0);
-    vec4 left = texelFetch(tex, coords + ivec2(-1, 0), 0);
-    vec4 right = texelFetch(tex, coords + ivec2(1, 0), 0);
-    vec4 up = texelFetch(tex, coords + ivec2(0, -1), 0);
-    vec4 down = texelFetch(tex, coords + ivec2(0, 1), 0);
-    return (left + right + up + down) - center * 3.0;
-}
-
 highp vec4 getAlignment(ivec2 coords) {
-    coords = clamp(coords, ivec2(0), ivec2(textureSize(baseTexture, 0)/TILE_AL - 1));
+    // Clamp to the prev-alignment tile grid, i.e. the dispatch grid of the
+    // level above: floor(levelAboveWidth/8) == floor(2*thisTexWidth/8).
+    // The old textureSize(baseTexture)/TILE_AL-1 bound collapsed to 0 (or
+    // went undefined, min>max) at coarse levels narrower than ~32 texels,
+    // scrambling the coarse-offset propagation exactly where large warps
+    // need it most.
+    coords = clamp(coords, ivec2(0), ivec2(textureSize(prevAlignment, 0)*2/TILE));
     return texelFetch(prevAlignment, coords, 0);
 }
 
@@ -72,40 +69,21 @@ float brightness(vec4 color) {
 }
 
 // Per-pixel noise sigma at this pyramid level for the given base brightness.
-#if ROBUST
 float levelNoise(float baseBrightness) {
     // sigma per frame; the base-alter difference has sqrt(2) larger sigma,
     // which is folded into the significancy threshold instead of here.
     return max(sqrt(max(baseBrightness, 0.0) * noiseS + noiseO) / integralNorm, 1e-5);
 }
-float robustCost(vec4 baseValue, vec4 alterValue, float sigma) {
-    vec4 d = abs(baseValue - alterValue);
-    #if ROBUST == 2
-    // Charbonnier: smooth truncation, no hard cliff
-    vec4 eps = vec4(sigma * 0.35);
-    vec4 c = sqrt(d * d + eps * eps) - eps;
-    return dot(min(c, vec4(TRUNC * sigma)) / vec4(sigma), vec4(0.25));
-    #elif ROBUST == 3
-    // Noise-normalized squared difference (Gaussian NLL): correct alignment
-    // sits on the chi-square noise floor (~2 per channel), a wrong one adds
-    // signal^2/sigma^2. Separates signal from the noise floor far better than
-    // L1 on dark scenes.
-    vec4 nd = (d * d) / vec4(sigma * sigma);
-    return dot(min(nd, vec4(TRUNC * TRUNC)), vec4(0.25));
-    #else
-    // Hard truncation at TRUNC sigma
-    return dot(min(d, vec4(TRUNC * sigma)) / vec4(sigma), vec4(0.25));
-    #endif
+float alignCost(vec4 baseValue, vec4 alterValue, float sigma) {
+    // Plain noise-normalized L1, unclamped - see the cost comment above.
+    return dot(abs(baseValue - alterValue) / vec4(sigma), vec4(0.25));
 }
-#endif
 
 mat4 getSharedDifferences(ivec2 xy, ivec2 prevOffset) {
     mat4 differences;
     vec4 baseValue = clamp(getPixel(xy, baseTexture), 0.000, 1.0);
     float baseBrightness = brightness(baseValue);
-    #if ROBUST
     float sigma = levelNoise(baseBrightness);
-    #endif
     // Base pixel unusable (clipped above the alter frame's exposure or below
     // the black floor): contribute a neutral 0 cost to every candidate so the
     // tile keeps the previous alignment instead of locking onto garbage.
@@ -113,18 +91,9 @@ mat4 getSharedDifferences(ivec2 xy, ivec2 prevOffset) {
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 4; j++) {
             vec4 alterValue = clamp(getPixel(xy + ivec2(i-1, j-1) + prevOffset, alterTexture), 0.0, exposure);
-            #if ROBUST
-            differences[i][j] = robustCost(baseValue, alterValue, sigma) * baseWeight;
-            #else
-            differences[i][j] = dot(abs(baseValue - alterValue), vec4(0.25));
-            #endif
+            differences[i][j] = alignCost(baseValue, alterValue, sigma) * baseWeight;
         }
     }
-    #if !ROBUST
-    if (baseBrightness > brightness(clamp(baseValue, 0.0, exposure)) || baseBrightness < 0.001) {
-        differences *= 0.0;
-    }
-    #endif
     return differences;
 }
 
@@ -132,9 +101,7 @@ mat4 getOffsetDifferences(ivec2 xy) {
     mat4 differences;
     vec4 baseValue = clamp(getPixel(xy, baseTexture), 0.000, 1.0);
     float baseBrightness = brightness(baseValue);
-    #if ROBUST
     float sigma = levelNoise(baseBrightness);
-    #endif
     float baseWeight = (baseBrightness > brightness(clamp(baseValue, 0.0, exposure)) || baseBrightness < 0.001) ? 0.0 : 1.0;
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 4; j++) {
@@ -145,18 +112,9 @@ mat4 getOffsetDifferences(ivec2 xy) {
             // floor, not ivec2() truncation: prevOffset may carry a subpixel
             // fract and trunc rounds the wrong way for negative offsets
             vec4 alterValue = clamp(getPixel(xy + ivec2(floor(prevOffset)), alterTexture), 0.0, exposure);
-            #if ROBUST
-            differences[i][j] = robustCost(baseValue, alterValue, sigma) * baseWeight;
-            #else
-            differences[i][j] = dot(abs(baseValue - alterValue), vec4(0.25));
-            #endif
+            differences[i][j] = alignCost(baseValue, alterValue, sigma) * baseWeight;
         }
     }
-    #if !ROBUST
-    if (baseBrightness > brightness(clamp(baseValue, 0.0, exposure)) || baseBrightness < 0.001) {
-        differences *= 0.0;
-    }
-    #endif
     return differences;
 }
 
@@ -266,19 +224,20 @@ highp vec3 computeAlignment(ivec2 tile_xy, vec2 prevOffset) {
             }
         }
     }
-#if ROBUST
     // Significance gate: compare the cost improvement of the best candidate
     // over the previous alignment against the statistical noise of the summed
     // cost (CLT: std of the sum ~ sqrt(expected cost * N)). With the
-    // noise-normalized cost a correctly aligned tile averages ~1.1 (L1) or ~2
-    // (chi-square, ROBUST 3). If the improvement is below 'significancy'
+    // noise-normalized L1 cost a correctly aligned tile averages ~1.13 (|N(0,
+    // sqrt(2))| per pixel). If the improvement is below 'significancy'
     // standard deviations, the minimum is noise and we keep the previous
-    // alignment. This stops textureless night tiles from random-walking into
-    // blocky misalignment. 'sum' comes from shared memory and is identical on
-    // every thread, so the gate keeps the returned offset uniform.
+    // alignment. This stops textureless tiles from random-walking into
+    // blocky misalignment while leaving genuine detail matches untouched
+    // (k = 1.5, measured on real ProRAW bursts in tools/alignment-bench).
+    // 'sum' comes from shared memory and is identical on every thread, so
+    // the gate keeps the returned offset uniform.
     {
         float n = float(OFFSETS * TILE * TILE);
-        float expected = (ROBUST == 3) ? 2.0 : 1.13; // mean per-pixel cost when aligned
+        float expected = 1.13; // mean per-pixel cost when aligned
         float thresh = significancy * sqrt(expected / n);
         float costPrev = sum[1][1];
         float improvement = (costPrev - minDiff) / n;
@@ -287,7 +246,6 @@ highp vec3 computeAlignment(ivec2 tile_xy, vec2 prevOffset) {
             minDiff = costPrev;
         }
     }
-#endif
     return vec3(bestOffset.x, bestOffset.y, minDiff);
 }
 
@@ -304,7 +262,6 @@ void main() {
     // Compute alignment vector
     vec3 bestOffset = computeAlignment(tile_xy, prevOffset);
     bestOffset = computeAlignment(tile_xy, bestOffset.xy);
-    //bestOffset = computeAlignment(tile_xy, bestOffset.xy);
     if (localIndex == 0) {
         // Store the best offset in the output texture
         imageStore(outTexture, tile_xy, alignmentToVec4(bestOffset.xy));

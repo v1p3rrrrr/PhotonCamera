@@ -7,7 +7,7 @@ uniform highp usampler2D inTexture;
 layout(rgba16f, binding = 0) uniform highp writeonly image2D outTexture;
 
 
-uniform float whiteLevel;
+uniform uint whitelevel;
 uniform vec4 blackLevel;
 uniform float exposure;
 uniform bool createDiff;
@@ -28,7 +28,7 @@ uint getBayer(ivec2 coords, highp usampler2D tex){
 }
 
 float getBayerNorm(ivec2 coords, highp usampler2D tex){
-    return clamp((float(getBayer(coords, tex)) - dot(blackLevel, vec4(0.25)))/(float(whiteLevel)-dot(blackLevel,vec4(0.25))), 0.0, 1.0);
+    return clamp((float(getBayer(coords, tex)) - dot(blackLevel, vec4(0.25)))/(float(whitelevel)-dot(blackLevel,vec4(0.25))), 0.0, 1.0);
 }
 // Green-normalize the packed quads: the quincunx sub-texel sampler in later
 // stages needs the two greens on the anti-diagonal g/b slots. Only GRBG/GBRG
@@ -47,7 +47,7 @@ vec4 getBayerVec(ivec2 coords, highp usampler2D tex){
                    getBayer(clamp(org + ivec2(1,0), ivec2(0), sz - ivec2(1)),tex),
                    getBayer(clamp(org + ivec2(0,1), ivec2(0), sz - ivec2(1)),tex),
                    getBayer(clamp(org + ivec2(1,1), ivec2(0), sz - ivec2(1)),tex));
-    return clamp((c0 - blackLevel)/(vec4(whiteLevel)-blackLevel), 0.0, 1.0);
+    return clamp((c0 - blackLevel)/(vec4(float(whitelevel))-blackLevel), 0.0, 1.0);
 }
 
 float getTest(ivec2 coords, highp usampler2D tex){

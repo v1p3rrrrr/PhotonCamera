@@ -23,7 +23,7 @@ public class HotPixelFilter extends Node {
         glProg.setDefine("NOISEO",basePipeline.noiseO);
         glProg.setDefine("NOISES",basePipeline.noiseS);
         glProg.setDefine("IMPULSE",5.0f);
-        glProg.useAssetProgram("hotpixels",true);
+        glProg.useAssetProgram("HotPixelFilter/hotpixels",true);
         glProg.setTextureCompute("inTexture",previousNode.WorkingTexture,false);
         WorkingTexture = previousNode.WorkingTexture;
         glProg.setTextureCompute("outTexture",WorkingTexture,true);

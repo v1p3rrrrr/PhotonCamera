@@ -162,17 +162,24 @@ public class PyramidAlignment implements AutoCloseable {
     @Tunable(title = "Correction Sharpness", category = "Alignment", min = -1.0f, max = 2.0f, defaultValue = 1.0f)
     float sharpness;
 
-    @Tunable(title = "Robust alignment cost", category = "Alignment", description = "0=plain SAD, 1=truncated noise-normalized, 2=Charbonnier noise-normalized", min = 0, max = 2, step = 1, defaultValue = 1)
-    int robustCost;
-
-    @Tunable(title = "Alignment cost truncation", category = "Alignment", description = "Robust cost clamp in noise sigmas (outlier/hotpixel rejection)", min = 1.0f, max = 8.0f, step = 0.5f, defaultValue = 3.0f)
-    float alignTrunc;
-
-    @Tunable(title = "Alignment significancy", category = "Alignment", description = "k: how many standard deviations the cost must improve to accept a new tile offset (higher = more conservative, freezes noise-driven tiles)", min = 1.0f, max = 8.0f, step = 0.5f, defaultValue = 3.0f)
-    float alignSignificancy;
-
-    @Tunable(title = "Diagonal previous-offset search", category = "Alignment", description = "Search the 8-neighborhood instead of the plus-shape when propagating the coarse alignment", min = 0, max = 1, step = 1, defaultValue = 1)
-    int diagSearch;
+    // Fixed alignment parameters, tuned on real ProRAW bursts with
+    // perspective (hand-shake) warps in tools/alignment-bench:
+    // - OFFSETS 9: the 8-neighborhood coarse-offset propagation roughly
+    //   halves the badly-misaligned tile share vs the plus-shape on every
+    //   tested scene (day, dusk, night).
+    // - significancy 2.0: significance-gate threshold in noise sigmas (the
+    //   canonical 2-sigma test). Freezes only statistically-insignificant
+    //   improvements (textureless tiles keep the smooth coarse field instead
+    //   of random-walking) while accepting genuine detail matches; 3.0
+    //   started rejecting real detail, 1.5 admits more noise locks at night
+    //   (measured on real ProRAW bursts, tools/alignment-bench).
+    // - prefilter sigma 1.5 quad units (normalize.glsl): centered 5-tap
+    //   gaussian, no min/max trim - hot pixels are invisible after this
+    //   average and the pyramid above it, trimming only removed detail.
+    // - cost: noise-normalized L1 without truncation (see align.glsl).
+    private static final int ALIGN_OFFSETS = 9;
+    private static final float ALIGN_SIGNIFICANCY = 2.0f;
+    private static final float PREFILTER_SIGMA = 1.5f;
 
     GLTexture inputBase;
     GLTexture base;
@@ -187,6 +194,28 @@ public class PyramidAlignment implements AutoCloseable {
 
     public void Run() {
         com.particlesdevs.photoncamera.settings.TunableInjector.inject(this);
+        // --- prefilter (normalize.glsl) configuration ---
+        // Replicate normalize.glsl's separable 5-tap gaussian weights to get
+        // the exact noise-reduction factor for the alignment's noise model:
+        // sigma_out = sigma_in * sum(w1d^2), so integralNorm multiplies by
+        // 1/sum(w1d^2). Without this the noise-normalized cost and the
+        // significance gate overestimate sigma and lose discrimination.
+        float blurSigma = PREFILTER_SIGMA;
+        double s2 = 2.0 * blurSigma * blurSigma;
+        double[] wx = new double[5];
+        double wsum = 0;
+        for (int i = 0; i < 5; i++) {
+            double d = i - 2;
+            wx[i] = Math.exp(-d * d / s2);
+            wsum += wx[i];
+        }
+        double sumsq = 0;
+        for (int i = 0; i < 5; i++) {
+            wx[i] /= wsum;
+            sumsq += wx[i] * wx[i];
+        }
+        float prefilterN = (float) (1.0 / sumsq);
+        Log.d("PyramidAlignment", "prefilter: sigma=" + blurSigma + " noiseFactor=" + prefilterN);
         Point rawHalf = new Point(parameters.rawSize.x/2,parameters.rawSize.y/2);
         Result = new GLTexture(size,new GLFormat(GLFormat.DataType.FLOAT_16,4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
         inputBase = new GLTexture(parameters.rawSize, new GLFormat(GLFormat.DataType.UNSIGNED_16,1),images.get(0).buffer, GL_NEAREST, GL_CLAMP_TO_EDGE);
@@ -202,6 +231,7 @@ public class PyramidAlignment implements AutoCloseable {
         glProg.useAssetProgram("alignment/normalize", true);
         glProg.setVar("whiteLevel", (float) (parameters.whiteLevel));
         glProg.setVar("blackLevel", parameters.blackLevel);
+        glProg.setVar("blurSigma", blurSigma);
         glProg.setTexture("inTexture", inputBase);
         glProg.setTexture("gainMap", gainMap);
         glProg.setVar("exposure", 1.0f);
@@ -306,9 +336,8 @@ public class PyramidAlignment implements AutoCloseable {
             glProg.useAssetProgram("alignment/normalize", true);
             glProg.setVar("whiteLevel", (float) (parameters.whiteLevel));
             glProg.setVar("blackLevel", parameters.blackLevel);
+            glProg.setVar("blurSigma", blurSigma);
             glProg.setVar("exposure", exposure);
-            glProg.setVar("noiseS", noiseS);
-            glProg.setVar("noiseO", noiseO);
             glProg.setTexture("inTexture", inputAlter);
             glProg.setTexture("gainMap", gainMap);
             glProg.setTextureCompute("outTexture", temp, true);
@@ -354,9 +383,7 @@ public class PyramidAlignment implements AutoCloseable {
 
                 float integralNorm = (float)rawHalf.x * rawHalf.y/(pyramidAlter.gauss[i+1].mSize.x * pyramidAlter.gauss[i+1].mSize.y);
                 glProg.setDefine("TILE_AL", parameters.tile);
-                glProg.setDefine("ROBUST", robustCost);
-                glProg.setDefine("TRUNC", alignTrunc);
-                glProg.setDefine("OFFSETS", diagSearch != 0 ? 9 : 5);
+                glProg.setDefine("OFFSETS", ALIGN_OFFSETS);
                 glProg.setLayout(parameters.tile / 2, parameters.tile / 2, 1);
                 glProg.useAssetProgram("alignment/align", true);
                 boolean first = (i == pyramidAlter.gauss.length - 2);
@@ -370,11 +397,11 @@ public class PyramidAlignment implements AutoCloseable {
                 glProg.setTextureCompute("outTexture", pyramidAlter.gauss[i+1], true);
                 glProg.setVar("noiseS", noiseS);
                 glProg.setVar("noiseO", noiseO);
-                // Noise shrinks by sqrt(pixels averaged) per pyramid level; the
-                // old *8.0 factor was tuned for dead code and made the robust
-                // cost saturate (sigma underestimated ~8x).
-                glProg.setVar("integralNorm", (float) Math.sqrt(integralNorm));
-                glProg.setVar("significancy", alignSignificancy);
+                // Noise shrinks by sqrt(pixels averaged) per pyramid level,
+                // scaled by the prefilter's noise-reduction factor
+                // (normalize.glsl's gaussian: 1/sum(w^2)).
+                glProg.setVar("integralNorm", (float) Math.sqrt(integralNorm) * prefilterN);
+                glProg.setVar("significancy", ALIGN_SIGNIFICANCY);
                 glProg.setVar("first", first ? 1 : 0);
                 glProg.setVar("rawHalf", rawHalf);
                 glProg.setVar("exposure", exposure);

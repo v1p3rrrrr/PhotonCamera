@@ -46,7 +46,7 @@ public class ExposureFusion extends Node {
         return basePipeline.main2;
     }
     GLTexture unexpose(GLTexture in,float str){
-        glProg.useAssetProgram("unexpose");
+        glProg.useAssetProgram("ExposureFusion/unexpose");
         glProg.setTexture("InputBuffer",in);
         glProg.setVar("factor", str);
         glProg.setVar("neutralPoint", basePipeline.mParameters.whitePoint);

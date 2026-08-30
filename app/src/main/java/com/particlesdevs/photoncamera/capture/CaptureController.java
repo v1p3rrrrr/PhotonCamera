@@ -443,7 +443,7 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
      */
     public boolean mIsRecordingVideo;
     private Size target;
-    private float mFocus;
+    public float mFocus;
     public int mPreviewAFMode;
     public int mPreviewAEMode;
     public MeteringRectangle[] mPreviewMeteringAF;
@@ -554,6 +554,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                                         @NonNull CaptureResult partialResult) {
 
             process(partialResult);
+            if (mTouchFocus != null) {
+                mTouchFocus.onCaptureResult(partialResult);
+            }
         }
 
         @Override
@@ -605,8 +608,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
             VendorTagUtils.resultSessionApply(result, physicalID);
             process(result);
+            if (mTouchFocus != null) {
+                mTouchFocus.onCaptureResult(result);
+            }
             cameraEventsListener.onPreviewCaptureCompleted(result);
-            if(PreferenceKeys.getAfMode() == CaptureRequest.CONTROL_AF_MODE_AUTO && !burst && !mTouchFocus.isTouchFocus) {
+            if(PreferenceKeys.getAfMode() == CaptureRequest.CONTROL_AF_MODE_AUTO && !burst && (mTouchFocus == null || !mTouchFocus.isTouchFocus)) {
                 mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START);
                 rebuildPreviewBuilderOneShot();
             }

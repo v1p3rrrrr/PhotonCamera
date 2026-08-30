@@ -13,7 +13,7 @@ layout(rgba16f, binding = 3) uniform highp writeonly image2D outTexture;
 layout(rgba16f, binding = 4) uniform highp readonly image2D alterTexture;
 
 uniform float minLevel;
-uniform float whiteLevel;
+uniform uint whitelevel;
 uniform vec4 blackLevel;
 uniform float exposure;
 uniform float exposureLow;
@@ -41,7 +41,7 @@ uint getBayer(ivec2 coords, highp usampler2D tex){
 
 vec4 getBayerVec(ivec2 coords, highp usampler2D tex){
     vec4 c0 = vec4(getBayer(coords,tex),getBayer(coords+ivec2(1,0),tex),getBayer(coords+ivec2(0,1),tex),getBayer(coords+ivec2(1,1),tex));
-    return clamp((c0 - blackLevel)/(vec4(whiteLevel)-blackLevel), 0.0, 1.0);
+    return clamp((c0 - blackLevel)/(vec4(float(whitelevel))-blackLevel), 0.0, 1.0);
 }
 
 float window(float x){

@@ -25,7 +25,7 @@ public class BayerMoire extends Node {
         int msize = 5;
         glProg.setDefine("MSIZE", msize);
         glProg.setDefine("KERNELSIZE", 5.5f);
-        glProg.useAssetProgram("bayermoire",true);
+        glProg.useAssetProgram("BayerMoire/bayermoire",true);
         glProg.setTextureCompute("inTexture",previousNode.WorkingTexture,false);
         WorkingTexture = basePipeline.getMain();
         glProg.setTextureCompute("outTexture",WorkingTexture,true);

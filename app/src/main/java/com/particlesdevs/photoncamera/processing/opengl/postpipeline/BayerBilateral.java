@@ -33,7 +33,7 @@ public class BayerBilateral extends Node {
         glProg.setDefine("NOISEO",noiseO);
         glProg.setDefine("INTENSE", (float) basePipeline.mSettings.noiseRstr);
         glProg.setDefine("INSIZE",previousNode.WorkingTexture.mSize);
-        glProg.useProgram("bayerbilateral");
+        glProg.useProgram("BayerBilateral/bayerbilateral");
         glProg.setTexture("InputBuffer",previousNode.WorkingTexture);
         WorkingTexture = basePipeline.getMain();
         glProg.drawBlocks(WorkingTexture);

@@ -23,7 +23,7 @@ public class DirectedMedian extends Node {
         {
             glProg.setDefine("INTENSE", (float) basePipeline.mSettings.noiseRstr);
             glProg.setDefine("INSIZE", previousNode.WorkingTexture.mSize);
-            glProg.useAssetProgram("directedmedian");
+            glProg.useAssetProgram("DirectedMedian/directedmedian");
             glProg.setTexture("InputBuffer", previousNode.WorkingTexture);
             glProg.setTexture("GradBuffer", grad);
             WorkingTexture = basePipeline.getMain();

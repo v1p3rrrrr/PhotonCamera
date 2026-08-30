@@ -40,6 +40,10 @@ import static com.particlesdevs.photoncamera.util.Math2.mix;
         if (HSVTexture != null) HSVTexture.close();
         if (LookupTexture != null) LookupTexture.close();
         if(((PostPipeline)basePipeline).FusionMap != null) ((PostPipeline)basePipeline).FusionMap.close();
+        if(((PostPipeline)basePipeline).exposureCurve != null) {
+            ((PostPipeline)basePipeline).exposureCurve.close();
+            ((PostPipeline)basePipeline).exposureCurve = null;
+        }
         //TonemapCoeffs.close();
     }
     private boolean lutLoaded = false;
@@ -55,9 +59,6 @@ import static com.particlesdevs.photoncamera.util.Math2.mix;
     GLTexture LookupTexture;
     GLImage lutbm;
     float highersatmpy = 1.0f;
-    @Tunable(title = "Enable", category = "Color & Tone", defaultValue = 1, min = 0, max = 1, step = 1, description = "Enable camera matrix color correction, tone mapping and gamma correction")
-    boolean enable;
-    
     @Tunable(title = "Gamma Coefficient", category = "Color & Tone", min = 1.0f, max = 3.0f, defaultValue = 2.2f)
     float gammaKoefficientGenerator = 2.2f;
     
@@ -116,10 +117,6 @@ import static com.particlesdevs.photoncamera.util.Math2.mix;
     
     @Override
     public void Run() {
-        if (!enable) {
-            WorkingTexture = super.previousNode.WorkingTexture;
-            return;
-        }
         // Cheap-pass support: keep the linear buffer (Initial's input = post
         // demosaic/denoise/ABLC) so the Ultra HDR gain-map pass can measure
         // the pre-local-tone-map scene.
@@ -277,7 +274,8 @@ import static com.particlesdevs.photoncamera.util.Math2.mix;
                 cube = basePipeline.mParameters.CCT.cubes[0].cube;
         }
         if(((PostPipeline)basePipeline).FusionMap != null) glProg.setDefine("FUSION", 1);
-        glProg.useAssetProgram("initial");
+        if(((PostPipeline)basePipeline).exposureCurve != null) glProg.setDefine("EXPOCURVE", 1);
+        glProg.useAssetProgram("Initial/initial");
         if(mode == ColorCorrectionTransform.CorrectionMode.CUBE || mode == ColorCorrectionTransform.CorrectionMode.CUBES){
             glProg.setVar("CUBE0",cube[0]);
             glProg.setVar("CUBE1",cube[1]);
@@ -333,6 +331,7 @@ import static com.particlesdevs.photoncamera.util.Math2.mix;
         Log.d(Name,"intermediateToSRGB: "+ Arrays.toString(cct));
         glProg.setVar("intermediateToSRGB",cct);
         if(((PostPipeline)basePipeline).FusionMap != null) glProg.setTexture("FusionMap",((PostPipeline)basePipeline).FusionMap);
+        if(((PostPipeline)basePipeline).exposureCurve != null) glProg.setTexture("ExposureCurve",((PostPipeline)basePipeline).exposureCurve);
         Log.d(Name,"SensorPix:"+basePipeline.mParameters.sensorPix);
         glProg.setVar("activeSize",2,2,basePipeline.mParameters.sensorPix.right-basePipeline.mParameters.sensorPix.left-2,
                 basePipeline.mParameters.sensorPix.bottom-basePipeline.mParameters.sensorPix.top-2);

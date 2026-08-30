@@ -24,7 +24,7 @@ public class SAGA extends Node {
     @Override
     public void Run() {
         images = ((PostPipeline)basePipeline).SAGAIN;
-        glProg.useAssetProgram("sagamerge");
+        glProg.useAssetProgram("SAGA/sagamerge");
         GLTexture output =  new GLTexture(basePipeline.mParameters.rawSize,new GLFormat(GLFormat.DataType.UNSIGNED_16),images.get(0).buffer);
         GLTexture align = null;
 

@@ -21,7 +21,7 @@ public class BayerConcat extends Node {
         glProg.setLayout(tile,tile,1);
         glProg.setDefine("TILE",tile);
         glProg.setDefine("CONCAT", concat);
-        glProg.useAssetProgram("concat",true);
+        glProg.useAssetProgram("Concat/concat",true);
         glProg.setTextureCompute("inTexture",previousNode.WorkingTexture,false);
         WorkingTexture = basePipeline.getMain();
         glProg.setTextureCompute("outTexture",WorkingTexture,true);

@@ -35,7 +35,7 @@ public class ESD3DBayer extends Node {
         WorkingTexture = basePipeline.getMain();
         grad = basePipeline.main3;
         glProg.setDefine("INSIZE",basePipeline.workSize);
-        glProg.useAssetProgram("diffbayer");
+        glProg.useAssetProgram("ESD3DBayer/diffbayer");
         glProg.setTexture("InputBuffer", previousNode.WorkingTexture);
         glProg.drawBlocks(grad);
         endT("Differentiate");

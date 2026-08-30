@@ -24,7 +24,7 @@ public class Concat extends Node {
             glProg.setDefine("CONCAT", 1);
         else
             glProg.setDefine("CONCAT", 0);
-        glProg.useAssetProgram("concat",true);
+        glProg.useAssetProgram("Concat/concat",true);
         glProg.setTextureCompute("inTexture",previousNode.WorkingTexture,false);
         WorkingTexture = basePipeline.getMain();
         glProg.setTextureCompute("outTexture",WorkingTexture,true);

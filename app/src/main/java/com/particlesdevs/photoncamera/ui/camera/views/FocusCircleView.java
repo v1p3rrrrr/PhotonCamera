@@ -6,6 +6,7 @@ import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.hardware.camera2.CameraMetadata;
 import android.util.AttributeSet;
 import android.view.View;
 
@@ -58,18 +59,10 @@ public class FocusCircleView extends View {
     }
 
     public void setAfState(int afState) {
-        focused_locked = false;
-        unfocused_locked = false;
-        switch (afState) {
-            case 4:
-                focused_locked = true;
-                break;
-            case 5:
-                unfocused_locked = true;
-                break;
-            default:
-                break;
-        }
+        focused_locked = afState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
+                || afState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED;
+        unfocused_locked = afState == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
+                || afState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED;
         invalidate();
     }
 }

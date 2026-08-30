@@ -36,7 +36,7 @@ public class SharpenDual extends Node {
         sharpnessLevel = Math.min(1.5f, sharpnessLevel);
         glProg.setDefine("SAVEGREEN",true);
         glProg.setDefine("size1",blurSize);
-        glProg.useAssetProgram("blur");
+        glProg.useAssetProgram("SharpenDual/blur");
         //glProg.setVar("size", blurSize);
         //glProg.setVar("strength", PreferenceKeys.getSharpnessValue());
         glProg.setTexture("InputBuffer",previousNode.WorkingTexture);

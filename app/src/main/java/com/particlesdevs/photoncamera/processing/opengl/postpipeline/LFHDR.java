@@ -23,7 +23,7 @@ public class LFHDR extends Node {
     }
 
     GLTexture SharpMask(GLTexture input) {
-        glProg.useAssetProgram("laplacian554");
+        glProg.useAssetProgram("LFHDR/laplacian554");
         glProg.setTexture("InputBuffer", input);
         glProg.setVar("size", 1.7f);
         Log.d(Name, "Sharp mFormat:" + input.mFormat.toString());
@@ -44,7 +44,7 @@ public class LFHDR extends Node {
     }
 
     GLTexture ApplyMask(GLTexture input, GLTexture mask) {
-        glProg.useAssetProgram("add4");
+        glProg.useAssetProgram("LFHDR/add4");
         glProg.setTexture("InputBuffer", input);
         glProg.setTexture("InputBuffer2", mask);
         GLTexture output = new GLTexture(new Point(input.mSize.x, input.mSize.y), input.mFormat, null);
@@ -54,7 +54,7 @@ public class LFHDR extends Node {
     }
 
     GLTexture MergeHDR(GLTexture inputLow, GLTexture inputHigh) {
-        glProg.useAssetProgram("mergehdr");
+        glProg.useAssetProgram("LFHDR/mergehdr");
         glProg.setTexture("InputBufferLow", inputLow);
         glProg.setTexture("InputBufferHigh", inputHigh);
         GLTexture output = new GLTexture(inputLow.mSize, inputLow.mFormat, null);

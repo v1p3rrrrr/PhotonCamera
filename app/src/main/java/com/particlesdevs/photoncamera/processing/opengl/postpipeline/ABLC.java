@@ -102,7 +102,7 @@ public class ABLC extends Node {
                blackLevels[0], blackLevels[1], blackLevels[2]));
 
         // Apply black level correction
-        glProg.useAssetProgram("levelcorrection");
+        glProg.useAssetProgram("ABLC/levelcorrection");
         glProg.setTexture("InputBuffer", previousNode.WorkingTexture);
         glProg.setVar("blackLevel", blackLevels);
         WorkingTexture = basePipeline.getMain();
