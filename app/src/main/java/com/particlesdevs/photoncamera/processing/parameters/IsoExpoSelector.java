@@ -665,9 +665,10 @@ public class IsoExpoSelector {
             // 1. Save target exposure energy
             double targetEnergy = (double) exposure * iso;
 
-            // 2. Apply theoretical shift
-            exposure = (long) (exposure / k);
-            iso = (int) (iso * k);
+            // 2. Apply theoretical shift (bypassed on tripod to prioritize maximum light gathering)
+            double effectiveK = useTripod ? 1.0 : k;
+            exposure = (long) (exposure / effectiveK);
+            iso = (int) (iso * effectiveK);
 
             // 3. Resolve bounds using helper methods
             double isoHighNormalized = resolveIsoLimit(isoLimit);
