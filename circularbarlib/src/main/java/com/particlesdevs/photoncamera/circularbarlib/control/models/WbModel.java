@@ -16,8 +16,8 @@ import com.particlesdevs.photoncamera.circularbarlib.ui.views.knobview.ShadowTex
 import java.util.ArrayList;
 
 /**
- * Model responsible for managing a pure, strictly uniform 100K stepped Kelvin scale (2000K - 10000K).
- * Follows ShutterModel architecture with labeled indicators every 1000K and 4 intermediate 100K ticks.
+ * Model responsible for managing a pure, strictly uniform 50K stepped Kelvin scale (2000K - 10000K).
+ * Follows ShutterModel architecture with labeled indicators every 1000K and 4 intermediate 50K ticks.
  */
 public class WbModel extends ManualModel<Integer> {
 
@@ -38,9 +38,9 @@ public class WbModel extends ManualModel<Integer> {
 
         int minK = 2000;
         int maxK = 10000;
-        int stepK = 100;
+        int stepK = 50;
 
-        // Generate uniform 100K steps from 2000K to 10000K
+        // Generate uniform steps from 2000K to 10000K
         for (int k = minK; k <= maxK; k += stepK) {
             candidates.add(k + "K");
             values.add(k);
