@@ -8,18 +8,25 @@ import android.util.Rational;
 
 import com.particlesdevs.photoncamera.capture.CaptureController;
 import com.particlesdevs.photoncamera.processing.render.Converter;
+import java.util.Locale;
 
 /**
  * Practical DNG 1.4-adapted Color Temperature Converter for Android Camera2.
  *
- * Provides bidirectional conversion between Correlated Color Temperature (Kelvin 2000K - 10000K)
- * and Camera2 manual controls (COLOR_CORRECTION_GAINS and COLOR_CORRECTION_TRANSFORM).
+ * Provides bidirectional conversion between Correlated Color Temperature
+ * (Kelvin 2000K - 10000K)
+ * and Camera2 manual controls (COLOR_CORRECTION_GAINS and
+ * COLOR_CORRECTION_TRANSFORM).
  *
  * Engineering & Algorithmic Design:
- * - Continuous CIE 1931 xy Planckian blackbody locus analytical model (Kim et al. 2002).
- * - Universal DNG Mired reciprocal temperature interpolation between factory calibration points.
- * - Symmetrical Planckian CCT solving in CIE 1960 UCS (u, v) space for neutral point reconstruction.
- * - Low-allocation static calibration caching optimized for 60fps live viewfinder execution.
+ * - Continuous CIE 1931 xy Planckian blackbody locus analytical model (Kim et
+ * al. 2002).
+ * - Universal DNG Mired reciprocal temperature interpolation between factory
+ * calibration points.
+ * - Symmetrical Planckian CCT solving in CIE 1960 UCS (u, v) space for neutral
+ * point reconstruction.
+ * - Low-allocation static calibration caching optimized for 60fps live
+ * viewfinder execution.
  * - Fail-safe emergency fallbacks for optional or missing metadata keys.
  */
 public final class ColorTemperatureConverter {
@@ -30,15 +37,29 @@ public final class ColorTemperatureConverter {
     private static final int DEFAULT_TEMP_1 = 2856; // Standard Illuminant A
     private static final int DEFAULT_TEMP_2 = 6504; // CIE D65
 
-    // Fast static cache for active sensor calibration to minimize GC churn in live preview
+    // Fast static cache for active sensor calibration to minimize GC churn in live
+    // preview
     private static volatile CameraCharacteristics sCachedCharacteristics = null;
     private static volatile CalibrationData sCachedCalib = null;
+
+    public static final class WhiteBalanceResult {
+        public final int kelvin;
+        public final double duv;
+        public final String tintString;
+
+        public WhiteBalanceResult(int kelvin, double duv, String tintString) {
+            this.kelvin = kelvin;
+            this.duv = duv;
+            this.tintString = tintString;
+        }
+    }
 
     private ColorTemperatureConverter() {
     }
 
     /**
-     * Converts target color temperature in Kelvin (2000K - 10000K) into Camera2 sensor RGB gains
+     * Converts target color temperature in Kelvin (2000K - 10000K) into Camera2
+     * sensor RGB gains
      * using the active camera's characteristics.
      */
     public static RggbChannelVector kelvinToRggb(int kelvin) {
@@ -46,7 +67,8 @@ public final class ColorTemperatureConverter {
     }
 
     /**
-     * Converts target color temperature in Kelvin (2000K - 10000K) into Camera2 sensor RGB gains
+     * Converts target color temperature in Kelvin (2000K - 10000K) into Camera2
+     * sensor RGB gains
      * using the provided CameraCharacteristics.
      */
     public static RggbChannelVector kelvinToRggb(int kelvin, CameraCharacteristics characteristics) {
@@ -57,7 +79,7 @@ public final class ColorTemperatureConverter {
         double[] xy = kelvinToCIExy(t);
         double x = xy[0];
         double y = Math.max(xy[1], 1e-4);
-        float[] xyz = new float[]{(float) (x / y), 1.0f, (float) ((1.0 - x - y) / y)};
+        float[] xyz = new float[] { (float) (x / y), 1.0f, (float) ((1.0 - x - y) / y) };
 
         CalibrationData calib = getCalibrationData(characteristics);
         if (calib == null) {
@@ -73,7 +95,7 @@ public final class ColorTemperatureConverter {
 
         // 4. Sensor spectral response: [R, G, B]
         float[] cameraSensor = new float[3];
-        Converter.map(colorMatrix, xyz, /*out*/cameraSensor);
+        Converter.map(colorMatrix, xyz, /* out */cameraSensor);
 
         if (cameraSensor[0] <= 1e-5f || cameraSensor[1] <= 1e-5f || cameraSensor[2] <= 1e-5f) {
             return fallbackGains();
@@ -91,7 +113,8 @@ public final class ColorTemperatureConverter {
     }
 
     /**
-     * Creates a calibrated ColorSpaceTransform (Sensor -> linear sRGB) for CaptureRequest.
+     * Creates a calibrated ColorSpaceTransform (Sensor -> linear sRGB) for
+     * CaptureRequest.
      */
     public static ColorSpaceTransform createColorTransform(int kelvin, CameraCharacteristics characteristics) {
         CalibrationData calib = getCalibrationData(characteristics);
@@ -106,34 +129,16 @@ public final class ColorTemperatureConverter {
     }
 
     /**
-     * Creates a ColorSpaceTransform matrix directly from current sensor gains without Kelvin roundtrip loss.
-     */
-    public static ColorSpaceTransform createColorTransformFromGains(
-            RggbChannelVector gains,
-            CameraCharacteristics characteristics) {
-
-        CalibrationData calib = getCalibrationData(characteristics);
-        if (calib == null) {
-            return fallbackTransform();
-        }
-
-        float r = (gains != null) ? Math.max(gains.getRed(), 1e-4f) : 1.0f;
-        float b = (gains != null) ? Math.max(gains.getBlue(), 1e-4f) : 1.0f;
-        float[] neutralPoint = new float[]{1.0f / r, 1.0f, 1.0f / b};
-
-        float gFactor = solveInterpolationFactor(neutralPoint, calib, null);
-        return buildColorTransformFromFactor(gFactor, calib);
-    }
-
-    /**
-     * Reconstructs Correlated Color Temperature (CCT) in Kelvin from SENSOR_NEUTRAL_COLOR_POINT.
+     * Reconstructs Correlated Color Temperature (CCT) in Kelvin from
+     * SENSOR_NEUTRAL_COLOR_POINT.
      */
     public static int neutralPointToKelvin(Rational[] neutralPoint) {
         return neutralPointToKelvin(neutralPoint, CaptureController.mCameraCharacteristics);
     }
 
     /**
-     * Reconstructs Correlated Color Temperature (CCT) in Kelvin from SENSOR_NEUTRAL_COLOR_POINT.
+     * Reconstructs Correlated Color Temperature (CCT) in Kelvin from
+     * SENSOR_NEUTRAL_COLOR_POINT.
      */
     public static int neutralPointToKelvin(Rational[] neutralPoint, CameraCharacteristics characteristics) {
         if (neutralPoint == null || neutralPoint.length < 3) {
@@ -153,7 +158,7 @@ public final class ColorTemperatureConverter {
             return 5500; // Standard D55 daylight fail-safe
         }
 
-        float[] cameraNeutral = new float[]{(float) r, (float) g, (float) b};
+        float[] cameraNeutral = new float[] { (float) r, (float) g, (float) b };
         double[] outEstimatedKelvin = new double[1];
         solveInterpolationFactor(cameraNeutral, calib, outEstimatedKelvin);
 
@@ -162,12 +167,64 @@ public final class ColorTemperatureConverter {
     }
 
     /**
-     * Damped fixed-point DNG neutral point solver with symmetrical Planckian CCT projection.
+     * Reconstructs CCT (Kelvin) and signed physical Duv (Tint) directly from camera
+     * sensor neutral point [R, G, B].
+     */
+    public static WhiteBalanceResult estimateWhiteBalance(float[] cameraNeutral,
+            CameraCharacteristics characteristics) {
+        if (cameraNeutral == null || cameraNeutral.length < 3) {
+            return new WhiteBalanceResult(5500, 0.0, "");
+        }
+
+        float r = cameraNeutral[0];
+        float g = cameraNeutral[1];
+        float b = cameraNeutral[2];
+
+        if (Float.isNaN(r) || Float.isNaN(g) || Float.isNaN(b) || r <= 1e-5f || g <= 1e-5f || b <= 1e-5f) {
+            return new WhiteBalanceResult(5500, 0.0, "");
+        }
+
+        CalibrationData calib = getCalibrationData(characteristics);
+        if (calib == null) {
+            return new WhiteBalanceResult(5500, 0.0, "");
+        }
+
+        double[] outEstimatedKelvin = new double[1];
+        double[] outMeasuredXy = new double[2];
+        solveInterpolationFactorFull(cameraNeutral, calib, outEstimatedKelvin, outMeasuredXy);
+
+        PlanckianProjection proj = projectToPlanckianLocus(outMeasuredXy[0], outMeasuredXy[1]);
+
+        int exactKelvin = (int) Math.round(proj.cct);
+        int clampedKelvin = Math.max(MIN_KELVIN, Math.min(MAX_KELVIN, exactKelvin));
+
+        String tintStr = formatDuvToTintString(proj.duv);
+
+        return new WhiteBalanceResult(clampedKelvin, proj.duv, tintStr);
+    }
+
+    /**
+     * Damped fixed-point DNG neutral point solver with symmetrical Planckian CCT
+     * projection.
      */
     private static float solveInterpolationFactor(float[] cameraNeutral, CalibrationData calib, double[] outKelvin) {
+        return solveInterpolationFactorFull(cameraNeutral, calib, outKelvin, null);
+    }
+
+    /**
+     * Damped fixed-point DNG neutral point solver returning converged CCT and
+     * measured xy chromaticity.
+     */
+    private static float solveInterpolationFactorFull(float[] cameraNeutral, CalibrationData calib, double[] outKelvin,
+            double[] outMeasuredXy) {
         if (calib.colorTemp1 == calib.colorTemp2) {
             if (outKelvin != null) {
                 outKelvin[0] = calib.colorTemp1;
+            }
+            if (outMeasuredXy != null) {
+                double[] xy = kelvinToCIExy(calib.colorTemp1);
+                outMeasuredXy[0] = xy[0];
+                outMeasuredXy[1] = xy[1];
             }
             return 1.0f;
         }
@@ -184,7 +241,10 @@ public final class ColorTemperatureConverter {
         float[] colorMatrix = new float[9];
         float[] invColorMatrix = new float[9];
         float[] neutralGuess = new float[3];
+        double[] xy = new double[2];
         double lastCCT = 5500.0;
+        double lastX = 0.3320;
+        double lastY = 0.1858;
 
         while (loopLimit-- > 0) {
             Converter.lerp(calib.color2, calib.color1, (float) factor, colorMatrix);
@@ -192,8 +252,10 @@ public final class ColorTemperatureConverter {
                 break;
             }
 
-            Converter.map(invColorMatrix, cameraNeutral, /*out*/neutralGuess);
-            double[] xy = Converter.calculateCIExyCoordinates(neutralGuess[0], neutralGuess[1], neutralGuess[2]);
+            Converter.map(invColorMatrix, cameraNeutral, /* out */neutralGuess);
+            Converter.calculateCIExyCoordinates(neutralGuess[0], neutralGuess[1], neutralGuess[2], /* out */xy);
+            lastX = xy[0];
+            lastY = xy[1];
             lastCCT = cieXyToKelvin(xy[0], xy[1]);
 
             double invCT = 1.0 / Math.max(MIN_KELVIN, Math.min(MAX_KELVIN, lastCCT));
@@ -210,60 +272,142 @@ public final class ColorTemperatureConverter {
         if (outKelvin != null) {
             outKelvin[0] = lastCCT;
         }
+        if (outMeasuredXy != null) {
+            outMeasuredXy[0] = lastX;
+            outMeasuredXy[1] = lastY;
+        }
 
         return (float) Math.max(0.0, Math.min(1.0, factor));
     }
 
-    /**
-     * Symmetrical CCT numerical solver finding temperature T on the Planckian locus
-     * minimizing Euclidean distance in CIE 1960 UCS (u, v) space via Golden Section Search.
-     */
-    public static double cieXyToKelvin(double targetX, double targetY) {
-        double denom = -2.0 * targetX + 12.0 * targetY + 3.0;
-        if (Math.abs(denom) < 1e-6) {
-            return 5500.0;
+    public static final class PlanckianProjection {
+        public final double cct;
+        public final double duv;
+
+        public PlanckianProjection(double cct, double duv) {
+            this.cct = cct;
+            this.duv = duv;
         }
-        double targetU = (4.0 * targetX) / denom;
-        double targetV = (6.0 * targetY) / denom;
+    }
+
+    /**
+     * Projects a CIE 1931 xy chromaticity onto the Planckian locus in CIE 1960 UCS
+     * space
+     * and returns the corresponding CCT and signed Duv (CIE 15:2004 / Ohno 2013).
+     *
+     * CCT is the temperature of the closest point on the Planckian locus.
+     * Duv is the signed orthogonal Euclidean distance in CIE 1960 (u,v) space,
+     * with sign determined by central-difference tangent normal (positive for
+     * Green, negative for Magenta).
+     */
+    public static PlanckianProjection projectToPlanckianLocus(double targetX, double targetY) {
+        double denomMeas = -2.0 * targetX + 12.0 * targetY + 3.0;
+        if (Math.abs(denomMeas) < 1e-6) {
+            return new PlanckianProjection(5500.0, 0.0);
+        }
+        double targetU = (4.0 * targetX) / denomMeas;
+        double targetV = (6.0 * targetY) / denomMeas;
 
         final double phi = 0.618033988749895;
-        double a = MIN_KELVIN;
-        double b = MAX_KELVIN;
+        double a = 1667.0;
+        double b = 25000.0;
 
         double t1 = b - phi * (b - a);
         double t2 = a + phi * (b - a);
 
-        double d1 = distanceToPlanckianUCS(t1, targetU, targetV);
-        double d2 = distanceToPlanckianUCS(t2, targetU, targetV);
+        double d1 = distanceSqToPlanckianUCS(t1, targetU, targetV);
+        double d2 = distanceSqToPlanckianUCS(t2, targetU, targetV);
 
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 28; i++) {
             if (d1 < d2) {
                 b = t2;
                 t2 = t1;
                 d2 = d1;
                 t1 = b - phi * (b - a);
-                d1 = distanceToPlanckianUCS(t1, targetU, targetV);
+                d1 = distanceSqToPlanckianUCS(t1, targetU, targetV);
             } else {
                 a = t1;
                 t1 = t2;
                 d1 = d2;
                 t2 = a + phi * (b - a);
-                d2 = distanceToPlanckianUCS(t2, targetU, targetV);
+                d2 = distanceSqToPlanckianUCS(t2, targetU, targetV);
             }
         }
 
-        return (a + b) * 0.5;
+        double optimalT = (a + b) * 0.5;
+
+        // Closest point on the Planckian locus P(T*)
+        double[] xy0 = kelvinToCIExy(optimalT);
+        double denom0 = -2.0 * xy0[0] + 12.0 * xy0[1] + 3.0;
+        double u0 = (4.0 * xy0[0]) / denom0;
+        double v0 = (6.0 * xy0[1]) / denom0;
+
+        double du = targetU - u0;
+        double dv = targetV - v0;
+        double distance = Math.sqrt(du * du + dv * dv);
+
+        // Symmetric central difference tangent vector P(T* + 1K) - P(T* - 1K)
+        double[] xyPlus = kelvinToCIExy(optimalT + 1.0);
+        double denomPlus = -2.0 * xyPlus[0] + 12.0 * xyPlus[1] + 3.0;
+        double uPlus = (4.0 * xyPlus[0]) / denomPlus;
+        double vPlus = (6.0 * xyPlus[1]) / denomPlus;
+
+        double[] xyMinus = kelvinToCIExy(optimalT - 1.0);
+        double denomMinus = -2.0 * xyMinus[0] + 12.0 * xyMinus[1] + 3.0;
+        double uMinus = (4.0 * xyMinus[0]) / denomMinus;
+        double vMinus = (6.0 * xyMinus[1]) / denomMinus;
+
+        double tu = uPlus - uMinus;
+        double tv = vPlus - vMinus;
+
+        // Strict 2D cross product with tangent to determine exact side of locus (Ohno
+        // 2013):
+        // Positive for Green (above locus), negative for Magenta (below locus)
+        double side = du * tv - dv * tu;
+        double signedDuv = (side >= 0.0) ? distance : -distance;
+
+        return new PlanckianProjection(optimalT, signedDuv);
     }
 
-    private static double distanceToPlanckianUCS(double T, double targetU, double targetV) {
+    private static double distanceSqToPlanckianUCS(double T, double targetU, double targetV) {
         double[] xy = kelvinToCIExy(T);
         double denom = -2.0 * xy[0] + 12.0 * xy[1] + 3.0;
+        if (Math.abs(denom) < 1e-9)
+            return Double.MAX_VALUE;
         double u = (4.0 * xy[0]) / denom;
         double v = (6.0 * xy[1]) / denom;
 
         double du = u - targetU;
         double dv = v - targetV;
         return du * du + dv * dv;
+    }
+
+    /**
+     * Formats Duv as an approximate photographic CC filter tint string (1 unit ≈
+     * 0.002 Duv).
+     */
+    public static String formatDuvToTintString(double duv) {
+        if (Math.abs(duv) < 0.0005) {
+            return ""; // Below human perceptual threshold
+        }
+        double ccSteps = Math.abs(duv) / 0.002;
+        if (duv > 0.0) {
+        return String.format(Locale.ROOT, "M+%.1f", Math.abs(ccSteps));
+    } else {
+        return String.format(Locale.ROOT, "G+%.1f", Math.abs(ccSteps));
+    }
+    }
+
+    public static double computeDuv(double targetX, double targetY) {
+        return projectToPlanckianLocus(targetX, targetY).duv;
+    }
+
+    public static double computeDuv(double targetX, double targetY, double cct) {
+        return projectToPlanckianLocus(targetX, targetY).duv;
+    }
+
+    public static double cieXyToKelvin(double targetX, double targetY) {
+        return projectToPlanckianLocus(targetX, targetY).cct;
     }
 
     private static float computeDngInterpolationFactor(double tempKelvin, int temp1, int temp2) {
@@ -285,28 +429,18 @@ public final class ColorTemperatureConverter {
         float[] cameraToXYZ = new float[9];
 
         if (calib.hasForwardMatrix) {
-            Converter.lerp(calib.forward2, calib.forward1, gClamped, /*out*/cameraToXYZ);
+            Converter.lerp(calib.forward2, calib.forward1, gClamped, /* out */cameraToXYZ);
         } else {
             float[] interpolatedColor = new float[9];
-            Converter.lerp(calib.color2, calib.color1, gClamped, /*out*/interpolatedColor);
+            Converter.lerp(calib.color2, calib.color1, gClamped, /* out */interpolatedColor);
 
-            if (!Converter.invert(interpolatedColor, /*out*/cameraToXYZ)) {
+            if (!Converter.invert(interpolatedColor, /* out */cameraToXYZ)) {
                 identityMatrix(cameraToXYZ);
             }
         }
 
         float[] sensorToSRGB = new float[9];
-        Converter.multiply(Converter.sXYZtoSRGB, cameraToXYZ, /*out*/sensorToSRGB);
-
-        // Row normalization (sum of each row = 1.0) ensures white point [1, 1, 1] preservation in sRGB
-        for (int row = 0; row < 3; row++) {
-            float sum = sensorToSRGB[row * 3] + sensorToSRGB[row * 3 + 1] + sensorToSRGB[row * 3 + 2];
-            if (Math.abs(sum) > 1e-6f) {
-                sensorToSRGB[row * 3]     /= sum;
-                sensorToSRGB[row * 3 + 1] /= sum;
-                sensorToSRGB[row * 3 + 2] /= sum;
-            }
-        }
+        Converter.multiply(Converter.sXYZtoSRGB, cameraToXYZ, /* out */sensorToSRGB);
 
         Rational[] rationals = new Rational[9];
         for (int i = 0; i < 9; i++) {
@@ -349,7 +483,7 @@ public final class ColorTemperatureConverter {
                     - 0.37001483;
         }
 
-        return new double[]{x, Math.max(y, 1e-4)};
+        return new double[] { x, Math.max(y, 1e-4) };
     }
 
     private static CalibrationData getCalibrationData(CameraCharacteristics characteristics) {
@@ -424,7 +558,7 @@ public final class ColorTemperatureConverter {
      * Fail-safe identity transform fallback when camera metadata is absent.
      */
     private static ColorSpaceTransform fallbackTransform() {
-        Rational[] identity = new Rational[]{
+        Rational[] identity = new Rational[] {
                 new Rational(1, 1), new Rational(0, 1), new Rational(0, 1),
                 new Rational(0, 1), new Rational(1, 1), new Rational(0, 1),
                 new Rational(0, 1), new Rational(0, 1), new Rational(1, 1)
@@ -433,9 +567,15 @@ public final class ColorTemperatureConverter {
     }
 
     private static void identityMatrix(float[] m) {
-        m[0] = 1f; m[1] = 0f; m[2] = 0f;
-        m[3] = 0f; m[4] = 1f; m[5] = 0f;
-        m[6] = 0f; m[7] = 0f; m[8] = 1f;
+        m[0] = 1f;
+        m[1] = 0f;
+        m[2] = 0f;
+        m[3] = 0f;
+        m[4] = 1f;
+        m[5] = 0f;
+        m[6] = 0f;
+        m[7] = 0f;
+        m[8] = 1f;
     }
 
     private static final class CalibrationData {
@@ -448,9 +588,9 @@ public final class ColorTemperatureConverter {
         final boolean hasForwardMatrix;
 
         CalibrationData(int colorTemp1, int colorTemp2,
-                        float[] color1, float[] color2,
-                        float[] forward1, float[] forward2,
-                        boolean hasForwardMatrix) {
+                float[] color1, float[] color2,
+                float[] forward1, float[] forward2,
+                boolean hasForwardMatrix) {
             this.colorTemp1 = colorTemp1;
             this.colorTemp2 = colorTemp2;
             this.color1 = color1;

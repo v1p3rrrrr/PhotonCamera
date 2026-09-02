@@ -255,6 +255,34 @@ public class ManualModeConsoleImpl implements ManualModeConsole {
         this.preserveManualWb = preserve;
     }
 
+    @Override
+    public void setManualWbValue(double kelvinValue) {
+        if (wbModel == null) {
+            manualParamModel.setCurrentWbValue(kelvinValue);
+            return;
+        }
+
+        // 1. Locate the matching knob item for the measured Kelvin value
+        KnobItemInfo matchedItem = null;
+        for (KnobItemInfo item : wbModel.getKnobInfoList()) {
+            if (Math.abs(item.value - kelvinValue) < 0.1) {
+                matchedItem = item;
+                break;
+            }
+        }
+
+        // 2. Synchronize WbModel, manual bar text, and active KnobView wheel rotation
+        if (matchedItem != null) {
+            wbModel.onSelectedKnobItemChanged(matchedItem);
+            manualModeModel.setWbText(matchedItem.text);
+            if (selectedModel == wbModel) {
+                knobModel.setManualModel(wbModel);
+            }
+        } else {
+            manualParamModel.setCurrentWbValue(kelvinValue);
+        }
+    }
+
     private void setModelToKnob(int viewId, ManualModel<?> modelToKnob) {
         if (modelToKnob == selectedModel) {
             knobModel.setManualModel(null);

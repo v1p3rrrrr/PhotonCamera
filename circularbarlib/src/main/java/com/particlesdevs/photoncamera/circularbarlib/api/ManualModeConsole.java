@@ -38,4 +38,6 @@ public interface ManualModeConsole {
     boolean isManualFocusModeActive();
 
     void setPreserveManualWb(boolean preserve);
+
+    void setManualWbValue(double kelvinValue);
 }

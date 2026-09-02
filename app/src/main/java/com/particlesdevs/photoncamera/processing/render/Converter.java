@@ -51,16 +51,24 @@ public class Converter {
 
     static {
         sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_DAYLIGHT, 6504);
-        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_D65, 6504);
-        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_D50, 5003);
-        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_D55, 5503);
-        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_D75, 7504);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_FLUORESCENT, 4230);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_TUNGSTEN, 2856);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_FLASH, 5500);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_FINE_WEATHER, 5500);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_CLOUDY_WEATHER, 6500);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_SHADE, 7500);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_DAYLIGHT_FLUORESCENT, 6430);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_DAY_WHITE_FLUORESCENT, 5000);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_COOL_WHITE_FLUORESCENT, 4230);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_WHITE_FLUORESCENT, 3450);
         sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_STANDARD_A, 2856);
         sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_STANDARD_B, 4874);
         sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_STANDARD_C, 6774);
-        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_DAYLIGHT_FLUORESCENT, 6430);
-        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_COOL_WHITE_FLUORESCENT, 4230);
-        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_WHITE_FLUORESCENT, 3450);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_D55, 5503);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_D65, 6504);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_D75, 7504);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_D50, 5003);
+        sStandardIlluminates.append(CameraMetadata.SENSOR_REFERENCE_ILLUMINANT1_ISO_STUDIO_TUNGSTEN, 3200);
     }
 
     /**
@@ -100,11 +108,15 @@ public class Converter {
         float[] referenceNeutral = new float[3];
         map(inverseInterpolatedCC, cameraNeutral, /*out*/referenceNeutral);
         if (DEBUG) Log.d(TAG, "Reference neutral: " + Arrays.toString(referenceNeutral));
-        float maxNeutral = Math.max(Math.max(referenceNeutral[0], referenceNeutral[1]),
-                referenceNeutral[2]);
-        float[] D = new float[]{maxNeutral / referenceNeutral[0], 0, 0,
-                0, maxNeutral / referenceNeutral[1], 0,
-                0, 0, maxNeutral / referenceNeutral[2]};
+        
+        float refN0 = Math.max(referenceNeutral[0], 1e-6f);
+        float refN1 = Math.max(referenceNeutral[1], 1e-6f);
+        float refN2 = Math.max(referenceNeutral[2], 1e-6f);
+        float maxNeutral = Math.max(Math.max(refN0, refN1), refN2);
+        
+        float[] D = new float[]{maxNeutral / refN0, 0, 0,
+                0, maxNeutral / refN1, 0,
+                0, 0, maxNeutral / refN2};
         if (DEBUG) Log.d(TAG, "Reference Neutral Diagonal: " + Arrays.toString(D));
         float[] intermediate = new float[9];
         float[] intermediate2 = new float[9];
@@ -165,6 +177,8 @@ public class Converter {
             Log.d(TAG, "XYZtoCamera2: " + Arrays.toString(XYZToCamera2));
             Log.d(TAG, "Finding interpolation factor, initial guess 0.5...");
         }
+        
+        double[] xy = new double[2];
         // Iteratively guess xy value, find new CCT, and update interpolation factor.
         int loopLimit = 30;
         int count = 0;
@@ -176,8 +190,7 @@ public class Converter {
                         "Cannot invert XYZ to Camera matrix, input matrices are invalid." + Arrays.toString(interpolationXYZToCamera) + " " + Arrays.toString(interpolationXYZToCameraInverse));
             }
             map(interpolationXYZToCameraInverse, cameraNeutral, /*out*/neutralGuess);
-            double[] xy = calculateCIExyCoordinates(neutralGuess[0], neutralGuess[1],
-                    neutralGuess[2]);
+            calculateCIExyCoordinates(neutralGuess[0], neutralGuess[1], neutralGuess[2], /*out*/xy);
             double colorTemperature = calculateColorTemperature(xy[0], xy[1]);
             if (colorTemperature <= lower) {
                 interpolationFactor = 1;
@@ -220,10 +233,23 @@ public class Converter {
      * @return the [x, y] chromaticity coordinates as doubles.
      */
     public static double[] calculateCIExyCoordinates(double X, double Y, double Z) {
-        double[] ret = new double[]{0, 0};
-        ret[0] = X / (X + Y + Z);
-        ret[1] = Y / (X + Y + Z);
+        double[] ret = new double[]{0.0, 0.0};
+        calculateCIExyCoordinates(X, Y, Z, ret);
         return ret;
+    }
+
+    /**
+     * In-place allocation-free calculation of CIE 1931 x,y chromaticity coordinates.
+     */
+    public static void calculateCIExyCoordinates(double X, double Y, double Z, /*out*/double[] outXy) {
+        double sum = X + Y + Z;
+        if (sum <= 1e-9) {
+            outXy[0] = 0.3127; // D65 fallback
+            outXy[1] = 0.3290;
+            return;
+        }
+        outXy[0] = X / sum;
+        outXy[1] = Y / sum;
     }
 
     /**
@@ -239,7 +265,11 @@ public class Converter {
      * @return the CCT associated with this chromaticity coordinate.
      */
     public static double calculateColorTemperature(double x, double y) {
-        double n = (x - 0.332) / (y - 0.1858);
+        double denom = y - 0.1858;
+        if (Math.abs(denom) < 1e-9) {
+            denom = (denom < 0) ? -1e-9 : 1e-9;
+        }
+        double n = (x - 0.332) / denom;
         return -449 * Math.pow(n, 3) + 3525 * Math.pow(n, 2) - 6823.3 * n + 5520.33;
     }
 

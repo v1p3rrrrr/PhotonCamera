@@ -44,7 +44,9 @@ import android.os.Bundle;
 import android.util.DisplayMetrics;
 
 import com.particlesdevs.photoncamera.ui.camera.views.viewfinder.HorizonIndicatorView;
+import com.particlesdevs.photoncamera.ui.camera.views.viewfinder.ViewfinderHudView;
 import com.particlesdevs.photoncamera.util.Log;
+import com.particlesdevs.photoncamera.manual.ParamController;
 import android.util.Size;
 import android.util.SizeF;
 import android.view.LayoutInflater;
@@ -159,6 +161,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     private ManualModeConsole manualModeConsole;
     public float displayAspectRatio;
     private HorizonIndicatorView mHorizonIndicatorView;
+    private ViewfinderHudView mViewfinderHudView;
 
     public CameraFragment() {
         Log.v(TAG, "fragment created");
@@ -216,6 +219,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         auxButtonsViewModel = new ViewModelProvider(this).get(AuxButtonsViewModel.class);
         surfaceView = cameraFragmentBinding.layoutViewfinder.surfaceView;
         textureView = cameraFragmentBinding.layoutViewfinder.texture;
+        mViewfinderHudView = cameraFragmentBinding.layoutViewfinder.viewfinderHudView;
     }
 
     private void setModelsToLayout() {
@@ -279,6 +283,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         this.mCameraUIEventsListener = new CameraUIController(this);
         this.mCameraUIView.setCameraUIEventsListener(mCameraUIEventsListener);
         this.captureController = new CaptureController(activity, processExecutorService, new CameraEventsListenerImpl());
+        this.captureController.setManualModeConsole(manualModeConsole);
         this.manualModeConsole.addParamObserver(captureController.getParamController());
         this.textureView.setManualModeConsole(manualModeConsole);
         PhotonCamera.setCaptureController(captureController);
@@ -371,8 +376,9 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     private void initTouchFocus() {
         if (cameraFragmentBinding != null && captureController != null) {
             View focusCircle = cameraFragmentBinding.layoutViewfinder.touchFocus;
+            View spotWbIndicator = cameraFragmentBinding.layoutViewfinder.spotWbIndicator;
             textureView.post(() -> {
-                mTouchFocus = new TouchFocus(captureController,focusCircle,textureView);
+                mTouchFocus = new TouchFocus(captureController, focusCircle, spotWbIndicator, textureView);
                 captureController.mTouchFocus = mTouchFocus;
             });
         }
@@ -385,6 +391,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         PhotonCamera.getSettings().saveID();
         textureView.onPause();
         surfaceView.clear();
+        if (mViewfinderHudView != null) mViewfinderHudView.clear();
         captureController.closeCamera();
 //        stopBackgroundThread();
         cameraFragmentViewModel.onPause();
@@ -460,9 +467,17 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             if (mHorizonIndicatorView != null) {
                 mHorizonIndicatorView.updateDisplayRotation(orientation);
             }
-            surfaceView.setOrientation(orientation);
-            mTouchFocus.setState(result.get(CaptureResult.CONTROL_AF_STATE));
+            if (mViewfinderHudView != null) {
+                mViewfinderHudView.setOrientation(orientation);
+            }
+            if (mTouchFocus != null) {
+                mTouchFocus.setOrientation(orientation);
+                mTouchFocus.setState(result.get(CaptureResult.CONTROL_AF_STATE));
+            }
             int afDataMode = PreferenceKeys.getAfDataValue();
+            if (mViewfinderHudView != null) {
+                mViewfinderHudView.setHudMode(afDataMode);
+            }
             if (afDataMode == 1 || afDataMode == 2) {
                 // Mode 1: HUD, Mode 2: HUD + Histogram
                 updateViewfinderHud(result, afDataMode);
@@ -538,6 +553,9 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             } else {
                 if (surfaceView.isCanvasDrawn) {
                     surfaceView.clear();
+                }
+                if (mViewfinderHudView != null) {
+                    mViewfinderHudView.clear();
                 }
             }
         });
@@ -698,8 +716,9 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             }
         }
 
-        surfaceView.setHudData(exposureStr, isoStr, lensStr, focusStr, wbStr, isTripod, oisSupported, oisActive);
-        surfaceView.refresh();
+        if (mViewfinderHudView != null) {
+            mViewfinderHudView.setHudData(exposureStr, isoStr, lensStr, focusStr, wbStr, isTripod, oisSupported, oisActive);
+        }
 
         // Trigger live histogram sampling if mode 2 (HUD + Histogram) is active
         if (afDataMode == 2) {
@@ -708,15 +727,22 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     }
 
     private String calculateWhitebalanceString(CaptureResult result) {
-        int wbVal = (captureController != null && captureController.getParamController() != null)
-                ? captureController.getParamController().WB : 0;
+        ParamController paramController = (captureController != null)
+                ? captureController.getParamController() : null;
+        int wbVal = (paramController != null) ? paramController.WB : 0;
 
-        // 1. Manual Kelvin dialed on the circular knob (2000K - 10000K)
+        // 1. Spot White Balance (SWB) with live Tint indicator (e.g. "SWB · 4400K · G+1.2")
+        if (paramController != null && paramController.isSpotWb && wbVal >= 2000) {
+            String tint = paramController.spotTintStr;
+            return "SWB · " + wbVal + "K" + (tint.isEmpty() ? "" : " · " + tint);
+        }
+
+        // 2. Manual Kelvin (MWB) dialed via knob
         if (wbVal >= 2000) {
             return "MWB · " + wbVal + "K";
         }
 
-        // 2. Dynamic Auto White Balance (AWB): calculate live CCT from sensor neutral point using shared model
+        // 3. Dynamic Auto White Balance (AWB) from live sensor neutral point
         android.util.Rational[] neutralPoint = result.get(CaptureResult.SENSOR_NEUTRAL_COLOR_POINT);
         if (neutralPoint == null || neutralPoint.length < 3) {
             if (captureController != null) {
@@ -781,14 +807,14 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             int g = (c >> 8) & 0xFF;
             int b = c & 0xFF;
 
-            // Filter out artificial magenta focus peaking highlights (high R & B, low G)
-            if (r > 190 && b > 190 && (r - g > 110) && (b - g > 110)) {
-                continue;
-            }
+            // Mathematically neutralize artificial magenta focus peaking boost (delta added equally to R and B)
+            int delta = Math.max(0, Math.min(r - g, b - g));
+            int cleanR = r - delta;
+            int cleanB = b - delta;
 
-            mHistData[0][r * size / 256]++;
+            mHistData[0][cleanR * size / 256]++;
             mHistData[1][g * size / 256]++;
-            mHistData[2][b * size / 256]++;
+            mHistData[2][cleanB * size / 256]++;
         }
 
         // Square-root compression as in original Histogram.java
@@ -803,9 +829,9 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         }
 
         final int calculatedMaxY = maxY;
-        if (surfaceView != null) {
-            surfaceView.post(() -> {
-                surfaceView.setHistogramData(mHistData, calculatedMaxY, size);
+        if (mViewfinderHudView != null) {
+            mViewfinderHudView.post(() -> {
+                mViewfinderHudView.setHistogramData(mHistData, calculatedMaxY, size);
             });
         }
     }
@@ -1188,6 +1214,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         @Override
         public void onCameraRestarted() {
             surfaceView.clear();
+            if (mViewfinderHudView != null) mViewfinderHudView.clear();
             mCameraUIView.refresh(CaptureController.isProcessing);
             mTouchFocus.resetFocusCircle();
         }
@@ -1195,11 +1222,13 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         @Override
         public void onCharacteristicsUpdated(CameraCharacteristics characteristics) {
             surfaceView.clear();
+            if (mViewfinderHudView != null) mViewfinderHudView.clear();
             auxButtonsViewModel.setActiveId(PreferenceKeys.getCameraID());
             Boolean flashAvailable = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
             mCameraUIView.showFlashButton(flashAvailable != null && flashAvailable);
             manualModeConsole.setPreserveManualWb(PreferenceKeys.isPreserveManualWbOn());
             manualModeConsole.init(activity, characteristics);
+            captureController.setManualModeConsole(manualModeConsole);
             manualModeConsole.onResume();
         }
 

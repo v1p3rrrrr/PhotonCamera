@@ -352,6 +352,11 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     private final Object mZslBufferLock = new Object();
     private volatile boolean mZslCapturing = false;
 
+    public interface RawFrameCallback {
+        void onRawFrameAvailable(@NonNull Image image, CaptureResult result);
+    }
+    private volatile RawFrameCallback mPendingRawMeteringCallback = null;
+
     private final ImageReader.OnImageAvailableListener mOnYuvImageAvailableListener
             = new ImageReader.OnImageAvailableListener() {
         @Override
@@ -370,6 +375,15 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
 
         @Override
         public void onImageAvailable(ImageReader reader) {
+            RawFrameCallback cb = mPendingRawMeteringCallback;
+            if (cb != null) {
+                mPendingRawMeteringCallback = null;
+                Image img = reader.acquireNextImage();
+                if (img != null) {
+                    cb.onRawFrameAvailable(img, mPreviewCaptureResult);
+                }
+                return;
+            }
             //dequeueAndSaveImage(mRawResultQueue, mRawImageReader);
             //mImageSaver.mImage = reader.acquireNextImage();
 //            Message msg = new Message();
@@ -1217,6 +1231,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
     public void restartCamera() {
         Log.d(TAG, "restartCamera() called from \"" + Thread.currentThread().getName() + "\" Thread");
         CameraFragment.mSelectedMode = PhotonCamera.getSettings().selectedMode;
+        if (paramController != null) {
+            paramController.onCameraChanged();
+        }
         mCameraOpening.set(false); // the device is closed below before reopening
         try {
             mCameraOpenCloseLock.acquire();
@@ -1513,6 +1530,9 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
         PhotonCamera.getSpecificSensor().selectSpecifics(Integer.parseInt(cameraId));
         CameraCharacteristics characteristics = this.mCameraCharacteristicsMap.get(cameraId);
         mCameraCharacteristics = characteristics;
+        if (paramController != null) {
+            paramController.onCameraChanged();
+        }
         //Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
 
         StreamConfigurationMap map = null;
@@ -2244,8 +2264,27 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
             if (paramController != null && paramController.WB != 0) {
                 int wbVal = paramController.WB;
                 if (wbVal >= 2000) {
-                    RggbChannelVector gains = ColorTemperatureConverter.kelvinToRggb(wbVal, mCameraCharacteristics);
-                    ColorSpaceTransform transform = ColorTemperatureConverter.createColorTransform(wbVal, mCameraCharacteristics);
+                    RggbChannelVector gains;
+                    ColorSpaceTransform transform;
+
+                    if (paramController.isSpotWb && paramController.spotGains != null) {
+                        gains = paramController.spotGains;
+                        transform = (paramController.spotTransform != null)
+                                ? paramController.spotTransform
+                                : ColorTemperatureConverter.createColorTransform(wbVal, mCameraCharacteristics);
+
+                        Log.d("WB_RESULT_DEBUG", "captureStillPicture Spot WB Set: Kelvin=" + wbVal
+                                + " | Tint=" + paramController.spotTintStr
+                                + " | Measured Gains=" + gains
+                                + " | Transform=" + transform);
+                    } else {
+                        gains = ColorTemperatureConverter.kelvinToRggb(wbVal, mCameraCharacteristics);
+                        transform = ColorTemperatureConverter.createColorTransform(wbVal, mCameraCharacteristics);
+
+                        Log.d("WB_RESULT_DEBUG", "captureStillPicture Manual WB Set: Kelvin=" + wbVal
+                                + " | Gains=" + gains
+                                + " | Transform=" + transform);
+                    }
 
                     captureBuilder.set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_OFF);
                     captureBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
@@ -2253,28 +2292,6 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     if (transform != null) {
                         captureBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, transform);
                     }
-
-                    Log.d("WB_RESULT_DEBUG", "captureStillPicture WB Set: Kelvin=" + wbVal
-                            + " | Gains=" + gains
-                            + " | Transform=" + transform);
-                }
-            }
-
-            if (paramController != null && paramController.WB != 0) {
-                int wbVal = paramController.WB;
-                if (wbVal >= 2000) {
-                    RggbChannelVector gains = ColorTemperatureConverter.kelvinToRggb(wbVal, mCameraCharacteristics);
-                    ColorSpaceTransform transform = ColorTemperatureConverter.createColorTransform(wbVal, mCameraCharacteristics);
-                    captureBuilder.set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_OFF);
-                    captureBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
-                    captureBuilder.set(CaptureRequest.COLOR_CORRECTION_GAINS, gains);
-                    if (transform != null) {
-                        captureBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, transform);
-                    }
-
-                    Log.d("WB_RESULT_DEBUG", "captureStillPicture WB Set: Kelvin=" + wbVal
-                            + " | Gains=" + gains
-                            + " | Transform=" + transform);
                 }
             }
 
@@ -2934,6 +2951,68 @@ public class CaptureController implements MediaRecorder.OnInfoListener {
                     builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON);
                 }
             }
+        }
+    }
+
+    /**
+     * Captures a single linear RAW frame for spot metering without triggering the photo save pipeline.
+     * Guarded against buffer contention and fully non-blocking in continuous ZSL mode.
+     */
+    public void captureSingleRawForMetering(RawFrameCallback callback) {
+        if (mCameraDevice == null || mCaptureSession == null || mImageReaderRaw == null) {
+            return;
+        }
+        // 1. Safety guard: reject measurement if camera is busy capturing or processing HDR bursts
+        if (isProcessing || burst || mZslCapturing) {
+            Log.w(TAG, "captureSingleRawForMetering: camera pipeline busy, skipping measurement");
+            return;
+        }
+
+        // 2. In ZSL mode, RAW frames stream continuously: intercept the next streaming frame with 0ms freeze
+        if (isZslMode()) {
+            mPendingRawMeteringCallback = callback;
+            return;
+        }
+
+        // 3. Non-ZSL mode (Photo / Night): submit isolated single-shot RAW capture preserving live AF/AE lock
+        try {
+            CaptureRequest.Builder builder;
+            if (mPreviewRequestBuilder != null) {
+                // Inherit exact live 3A state (locked AF mode, lens distance, regions, OIS) to avoid resetting focus
+                builder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                
+                Integer afMode = mPreviewRequestBuilder.get(CaptureRequest.CONTROL_AF_MODE);
+                if (afMode != null) builder.set(CaptureRequest.CONTROL_AF_MODE, afMode);
+                
+                Float focusDist = mPreviewRequestBuilder.get(CaptureRequest.LENS_FOCUS_DISTANCE);
+                if (focusDist != null) builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, focusDist);
+
+                MeteringRectangle[] afRegs = mPreviewRequestBuilder.get(CaptureRequest.CONTROL_AF_REGIONS);
+                if (afRegs != null) builder.set(CaptureRequest.CONTROL_AF_REGIONS, afRegs);
+
+                MeteringRectangle[] aeRegs = mPreviewRequestBuilder.get(CaptureRequest.CONTROL_AE_REGIONS);
+                if (aeRegs != null) builder.set(CaptureRequest.CONTROL_AE_REGIONS, aeRegs);
+
+                Integer aeMode = mPreviewRequestBuilder.get(CaptureRequest.CONTROL_AE_MODE);
+                if (aeMode != null) builder.set(CaptureRequest.CONTROL_AE_MODE, aeMode);
+            } else {
+                builder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            }
+
+            builder.addTarget(mImageReaderRaw.getSurface());
+
+            if (mPreviewExposureTime > 0) {
+                builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, mPreviewExposureTime);
+            }
+            if (mPreviewIso > 0) {
+                builder.set(CaptureRequest.SENSOR_SENSITIVITY, mPreviewIso);
+            }
+
+            mPendingRawMeteringCallback = callback;
+            mCaptureSession.capture(builder.build(), null, mBackgroundHandler);
+        } catch (Exception e) {
+            mPendingRawMeteringCallback = null;
+            Log.e(TAG, "captureSingleRawForMetering failed: " + e.getMessage());
         }
     }
 
